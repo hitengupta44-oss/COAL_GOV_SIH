@@ -3,6 +3,7 @@ import RoleGuard from "../../components/RoleGuard";
 import Layout from "../../components/Layout";
 import ChatPanel from "../../components/ChatPanel";
 import MineMap from "../../components/MineMap";
+import ReportPanel from "../../components/ReportPanel";
 import AlertsPanel from "../../components/AlertsPanel";
 import { Card, StatStrip, Table, Notice } from "../../components/ui";
 import { useAuth } from "../../lib/useAuth";
@@ -84,6 +85,8 @@ function RegulatorContent() {
           empty="No changes recorded yet. Entries appear here when a mine official updates a compliance item."
         />
       </Card>
+
+      <ReportPanel />
 
       <MineMap />
 
