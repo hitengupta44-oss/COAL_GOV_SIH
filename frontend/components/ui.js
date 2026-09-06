@@ -99,60 +99,103 @@ export function Badge({ children }) {
   );
 }
 
-export function Table({ columns, rows, severityOf, empty = "Nothing to show yet." }) {
+export function Table({
+  columns,
+  rows,
+  severityOf,
+  empty = "Nothing to show yet.",
+  // Long tables scroll inside the card rather than pushing everything
+  // below them off the page. The header stays put while you scroll --
+  // a column of dates with no header is unreadable after a few rows.
+  maxHeight = 460,
+  // The count is stated rather than left implied. Showing 10 of 3,000
+  // rows without saying so is how a dashboard ends up contradicting the
+  // report generated from the same data.
+  total,
+  countLabel = "rows",
+}) {
   if (!rows || rows.length === 0) return <Empty>{empty}</Empty>;
+
+  const shown = rows.length;
+  const known = total ?? shown;
+  const scrolls = shown > 12;
+
   return (
-    <div style={{ overflowX: "auto" }}>
-      <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 14 }}>
-        <thead>
-          <tr>
-            {columns.map((c) => (
-              <th
-                key={c.key}
-                style={{
-                  textAlign: c.align || "left",
-                  padding: "8px 12px",
-                  borderBottom: "1px solid var(--line-strong)",
-                  color: "var(--ink-soft)",
-                  fontWeight: 500,
-                  fontSize: 13,
-                  whiteSpace: "nowrap",
-                }}
-              >
-                {c.label}
-              </th>
-            ))}
-          </tr>
-        </thead>
-        <tbody>
-          {rows.map((r, i) => {
-            const key = severityOf ? SEVERITY[severityOf(r)] ?? null : null;
-            return (
-              <tr key={i}>
-                {columns.map((c, ci) => (
-                  <td
-                    key={c.key}
-                    style={{
-                      padding: "10px 12px",
-                      borderBottom: "1px solid var(--line)",
-                      textAlign: c.align || "left",
-                      verticalAlign: "top",
-                      borderLeft: ci === 0 && key ? `3px solid ${sevColor(key)}` : undefined,
-                      width: c.width,
-                      // Dates and short codes shouldn't break across lines --
-                      // a wrapped "2026-07-18" reads as two separate values.
-                      whiteSpace: c.nowrap ? "nowrap" : undefined,
-                    }}
-                  >
-                    {c.render ? c.render(r) : r[c.key]}
-                  </td>
-                ))}
-              </tr>
-            );
-          })}
-        </tbody>
-      </table>
-    </div>
+    <>
+      <div
+        style={{
+          overflowX: "auto",
+          overflowY: scrolls ? "auto" : "visible",
+          maxHeight: scrolls ? maxHeight : undefined,
+          border: scrolls ? "1px solid var(--line)" : undefined,
+          borderRadius: scrolls ? "var(--radius)" : undefined,
+        }}
+      >
+        <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 14 }}>
+          <thead>
+            <tr>
+              {columns.map((c) => (
+                <th
+                  key={c.key}
+                  style={{
+                    textAlign: c.align || "left",
+                    padding: "8px 12px",
+                    borderBottom: "1px solid var(--line-strong)",
+                    color: "var(--ink-soft)",
+                    fontWeight: 500,
+                    fontSize: 13,
+                    whiteSpace: "nowrap",
+                    position: scrolls ? "sticky" : undefined,
+                    top: scrolls ? 0 : undefined,
+                    background: "var(--surface)",
+                    zIndex: 1,
+                  }}
+                >
+                  {c.label}
+                </th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map((r, i) => {
+              const key = severityOf ? SEVERITY[severityOf(r)] ?? null : null;
+              return (
+                <tr key={i}>
+                  {columns.map((c, ci) => (
+                    <td
+                      key={c.key}
+                      style={{
+                        padding: "10px 12px",
+                        borderBottom: "1px solid var(--line)",
+                        textAlign: c.align || "left",
+                        verticalAlign: "top",
+                        borderLeft: ci === 0 && key ? `3px solid ${sevColor(key)}` : undefined,
+                        width: c.width,
+                        whiteSpace: c.nowrap ? "nowrap" : undefined,
+                      }}
+                    >
+                      {c.render ? c.render(r) : r[c.key]}
+                    </td>
+                  ))}
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+
+      {known > shown && (
+        <p style={{ color: "var(--ink-faint)", fontSize: 13, margin: "8px 0 0" }}>
+          Showing {shown} of {known.toLocaleString()} {countLabel}. Download the
+          report for the full set.
+        </p>
+      )}
+      {known === shown && shown > 12 && (
+        <p style={{ color: "var(--ink-faint)", fontSize: 13, margin: "8px 0 0" }}>
+          {shown.toLocaleString()} {countLabel}, scroll for the rest.
+        </p>
+      )}
+    </>
   );
 }
 
