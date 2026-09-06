@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import RoleGuard from "../../components/RoleGuard";
+import ChatPanel from "../../components/ChatPanel";
 import { useAuth } from "../../lib/useAuth";
 import { supabase } from "../../lib/supabase";
 
@@ -125,6 +126,7 @@ function WorkerDashboardContent() {
           </ul>
         )}
       </section>
+      <ChatPanel />
     </div>
   );
 }
