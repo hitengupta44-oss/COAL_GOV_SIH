@@ -91,10 +91,23 @@ export function AuthProvider({ children }) {
     return data;
   };
 
+  // Sets loading=true BEFORE clearing user/profile. Without this there is a
+  // render gap where a dashboard page is still mounted but profile has
+  // become null, and anything reading profile.something throws a
+  // client-side exception ("Application error: a client-side exception has
+  // occurred") before RoleGuard's redirect effect gets a chance to run.
+  // Holding loading=true keeps RoleGuard showing its placeholder until the
+  // redirect lands. Pages also use optional chaining (profile?.x) as a
+  // second layer of protection.
   const logout = async () => {
-    await supabase.auth.signOut();
-    setUser(null);
-    setProfile(null);
+    setLoading(true);
+    try {
+      await supabase.auth.signOut();
+    } finally {
+      setUser(null);
+      setProfile(null);
+      setLoading(false);
+    }
   };
 
   // Every backend call passes this token; backend/app.py verifies it
