@@ -147,12 +147,37 @@ function Markdown({ text }) {
   return <div>{blocks}</div>;
 }
 
+// Languages spoken across the Indian coalfields. The list is short on
+// purpose: these cover the great majority of workers at CIL subsidiaries,
+// and a picker with thirty entries is harder to use than one with six.
+// Choosing a language appends an instruction to the question rather than
+// changing any UI text -- the backend prompt already answers in whatever
+// language it is asked in, so this is a shortcut for people whose
+// keyboard is set to English.
+const LANGUAGES = [
+  ["en", "English"],
+  ["hi", "हिन्दी"],
+  ["bn", "বাংলা"],
+  ["or", "ଓଡ଼ିଆ"],
+  ["te", "తెలుగు"],
+  ["mr", "मराठी"],
+];
+
+const LANG_INSTRUCTION = {
+  hi: "Reply in Hindi.",
+  bn: "Reply in Bengali.",
+  or: "Reply in Odia.",
+  te: "Reply in Telugu.",
+  mr: "Reply in Marathi.",
+};
+
 export default function ChatPanel({ title = "Ask the Governance Assistant" }) {
   const { profile, getAccessToken } = useAuth();
   const [open, setOpen] = useState(false);
   const [messages, setMessages] = useState([]);
   const [input, setInput] = useState("");
   const [sending, setSending] = useState(false);
+  const [lang, setLang] = useState("en");
   const scrollRef = useRef(null);
 
   const suggestions = SUGGESTIONS[profile?.role] || SUGGESTIONS.worker;
@@ -176,7 +201,12 @@ export default function ChatPanel({ title = "Ask the Governance Assistant" }) {
       const history = messages
         .filter((m) => m.bot)
         .map((m) => [m.user, m.bot]);
-      const reply = await chatWithAssistant(accessToken, question, history);
+      const instruction = LANG_INSTRUCTION[lang];
+      const reply = await chatWithAssistant(
+        accessToken,
+        instruction ? `${question}\n\n(${instruction})` : question,
+        history
+      );
       setMessages((prev) =>
         prev.map((m, i) => (i === prev.length - 1 ? { ...m, bot: reply } : m))
       );
@@ -205,7 +235,21 @@ export default function ChatPanel({ title = "Ask the Governance Assistant" }) {
     <section style={{ marginTop: 8, marginBottom: 20, background: "var(--surface)", border: "1px solid var(--line)", borderRadius: "var(--radius)", padding: "18px 20px" }}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
         <h2 style={{ margin: 0, fontSize: 18 }}>💬 {title}</h2>
-        <button onClick={() => setOpen(false)} style={linkBtn}>Hide</button>
+        <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+          <label style={{ fontSize: 13, color: "var(--ink-soft)" }}>
+            <span style={{ marginRight: 6 }}>Language</span>
+            <select
+              value={lang}
+              onChange={(e) => setLang(e.target.value)}
+              style={{ width: "auto", padding: "4px 8px", fontSize: 13 }}
+            >
+              {LANGUAGES.map(([code, name]) => (
+                <option key={code} value={code}>{name}</option>
+              ))}
+            </select>
+          </label>
+          <button onClick={() => setOpen(false)} style={linkBtn}>Hide</button>
+        </div>
       </div>
 
       <p style={{ color: "var(--ink-soft)", fontSize: 13, marginTop: 6 }}>
