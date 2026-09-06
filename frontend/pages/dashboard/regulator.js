@@ -6,7 +6,7 @@ import MineMap from "../../components/MineMap";
 import ReportPanel from "../../components/ReportPanel";
 import GrievanceOverview from "../../components/GrievanceOverview";
 import AlertsPanel from "../../components/AlertsPanel";
-import { Card, StatStrip, Table, Notice } from "../../components/ui";
+import { Card, StatStrip, Table, Badge, Notice } from "../../components/ui";
 import { useAuth } from "../../lib/useAuth";
 import { getDashboardSummary, getHighRiskMines } from "../../lib/api";
 import { supabase } from "../../lib/supabase";
@@ -61,6 +61,13 @@ function RegulatorContent() {
             { key: "state", label: "State", render: (r) => r.state || "—" },
             { key: "flag_type", label: "Finding" },
             { key: "risk_score", label: "Score", align: "right", width: 70 },
+            // The mine's answer sits beside the finding. A flag with no
+            // visible response looks identical to one the site has already
+            // fixed, and oversight needs to tell those apart.
+            { key: "response_status", label: "Mine's response", width: 140,
+              render: (r) => r.response_status && r.response_status !== "Open"
+                ? <Badge>{r.response_status === "Addressed" ? "Low" : "Medium"}</Badge>
+                : <span style={{ color: "var(--ink-faint)" }}>No response</span> },
           ]}
           rows={risk || []}
           severityOf={(r) => scoreTone(r.risk_score)}
