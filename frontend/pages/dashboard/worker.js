@@ -25,7 +25,7 @@ function WorkerContent() {
       .select("category, description, status, date_filed, resolution_note, resolved_at, priority")
       .eq("filed_by", profile.profile_id)
       .order("date_filed", { ascending: false })
-      .limit(10);
+      .limit(200);
     setMine(data || []);
   };
 
@@ -90,6 +90,7 @@ function WorkerContent() {
                   </span> },
           ]}
           rows={mine}
+          countLabel="grievances"
           severityOf={(r) => r.status}
           empty="You haven't filed anything yet. Use the form above to raise an issue."
         />
