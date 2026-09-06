@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import RoleGuard from "../../components/RoleGuard";
 import Layout from "../../components/Layout";
 import ChatPanel from "../../components/ChatPanel";
+import AlertsPanel from "../../components/AlertsPanel";
 import { Card, StatStrip, Table, Notice } from "../../components/ui";
 import { useAuth } from "../../lib/useAuth";
 import { getDashboardSummary, getHighRiskMines } from "../../lib/api";
@@ -47,6 +48,8 @@ function RegulatorContent() {
           { label: "Overdue compliance items", value: summary?.overdue_compliance_items ?? "—", tone: "high" },
         ]}
       />
+
+      <AlertsPanel />
 
       <Card title="Mines flagged for review">
         <Table
