@@ -28,7 +28,7 @@ function ContractorContent() {
       .select("contractor_name, document_type, computed_status, valid_until, days_to_expiry")
       .in("computed_status", ["Expired", "Expiring", "Missing"])
       .order("days_to_expiry", { nullsFirst: true })
-      .limit(50);
+      .limit(500);
     setDocs(d || []);
   };
 
@@ -94,6 +94,7 @@ function ContractorContent() {
               render: (d) => <Badge>{d.computed_status === "Expiring" ? "Medium" : d.computed_status === "Expired" ? "Critical" : "High"}</Badge> },
           ]}
           rows={docs || []}
+          countLabel="documents"
           severityOf={(d) => d.computed_status === "Expired" ? "Critical" : d.computed_status === "Missing" ? "High" : "Medium"}
           empty="Every contractor's paperwork is current."
         />
@@ -117,6 +118,7 @@ function ContractorContent() {
               ) },
           ]}
           rows={list}
+          countLabel="contractors"
           severityOf={rowState}
           empty="No contractors on record for your subsidiary."
         />
