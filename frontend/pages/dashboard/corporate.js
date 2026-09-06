@@ -22,7 +22,7 @@ function CorporateDashboardContent() {
         <h1>🏢 Corporate Dashboard</h1>
         <button onClick={logout}>Log Out</button>
       </div>
-      <p>{profile.full_name || profile.email} — Corporate Management</p>
+      <p>{profile?.full_name || profile?.email} — Corporate Management</p>
 
       <section style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 16, marginTop: 24 }}>
         <StatCard label="Total Mines" value={summary?.total_mines ?? "—"} />
