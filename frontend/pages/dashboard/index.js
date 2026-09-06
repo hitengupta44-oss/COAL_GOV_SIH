@@ -18,17 +18,12 @@ export default function DashboardRouter() {
 
   useEffect(() => {
     if (loading) return;
-    if (!user) {
-      router.push("/login");
-      return;
-    }
-    if (!profile) {
-      router.push("/pending-approval");
-      return;
-    }
-    const target = ROLE_ROUTES[profile.role] || "/pending-approval";
-    router.push(target);
+    if (!user) return void router.push("/login");
+    if (!profile) return void router.push("/pending-approval");
+    router.push(ROLE_ROUTES[profile.role] || "/pending-approval");
   }, [user, profile, loading, router]);
 
-  return <p style={{ padding: 40, fontFamily: "sans-serif" }}>Loading your dashboard...</p>;
+  return (
+    <p style={{ padding: 40, color: "var(--ink-soft)" }}>Taking you to your dashboard.</p>
+  );
 }
