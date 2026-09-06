@@ -1,29 +1,123 @@
-* {
-  box-sizing: border-box;
+/* ---------------------------------------------------------------
+   Coal Mining Smart Governance Platform — design tokens
+
+   Palette is deliberately cool and institutional. Coal reads as a
+   blue-black in section, not a warm brown, so the sidebar is a
+   blue-toned anthracite rather than the near-black-plus-bright-accent
+   treatment. Severity colours are the working part of the system:
+   this is a risk platform, so a reader should be able to scan for
+   trouble without reading any text.
+   --------------------------------------------------------------- */
+@import url("https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&display=swap");
+
+:root {
+  --ink: #16212B;          /* anthracite: sidebar, headings */
+  --ink-soft: #46586B;     /* secondary text */
+  --ink-faint: #7A8B9C;    /* tertiary, captions */
+  --page: #F4F6F8;         /* cool page ground */
+  --surface: #FFFFFF;
+  --line: #DDE3E9;
+  --line-strong: #C4CED8;
+
+  --primary: #1A5490;
+  --primary-dark: #123C68;
+  --primary-wash: #EAF1F8;
+
+  /* Severity scale — used by the rail, badges and figures */
+  --sev-low: #2E7D4F;
+  --sev-medium: #B47600;
+  --sev-high: #C2410C;
+  --sev-critical: #A5231C;
+  --sev-low-wash: #EAF4EE;
+  --sev-medium-wash: #FBF3E3;
+  --sev-high-wash: #FCEEE7;
+  --sev-critical-wash: #FAEAE9;
+
+  --radius: 4px;
+  --sidebar-w: 248px;
 }
 
-body {
+* { box-sizing: border-box; }
+
+html, body {
   margin: 0;
-  background: #fafafa;
-  color: #1a1a1a;
+  padding: 0;
+  background: var(--page);
+  color: var(--ink);
+  font-family: "IBM Plex Sans", system-ui, -apple-system, sans-serif;
+  font-size: 15px;
+  line-height: 1.55;
+  -webkit-font-smoothing: antialiased;
 }
 
-button {
-  cursor: pointer;
-  background: #1a1a1a;
-  color: white;
-  border: none;
-  border-radius: 6px;
-  padding: 8px 16px;
+/* Figures line up in columns and don't jitter as they update. */
+table, .figure { font-variant-numeric: tabular-nums; }
+
+h1, h2, h3 { margin: 0; font-weight: 600; letter-spacing: -0.01em; }
+h1 { font-size: 24px; }
+h2 { font-size: 17px; }
+h3 { font-size: 15px; }
+p { margin: 0 0 10px; }
+
+a { color: var(--primary); }
+
+button { font-family: inherit; font-size: 14px; }
+
+input, select, textarea {
+  font-family: inherit;
   font-size: 14px;
+  color: var(--ink);
+  background: var(--surface);
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius);
+  padding: 8px 10px;
+  width: 100%;
+}
+input:focus, select:focus, textarea:focus, button:focus-visible, a:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 1px;
 }
 
-button:hover {
-  background: #333;
+/* Body scroll is owned by the main column, not the page. */
+.app { display: flex; min-height: 100vh; }
+
+.sidebar {
+  width: var(--sidebar-w);
+  flex: 0 0 var(--sidebar-w);
+  background: var(--ink);
+  color: #C9D4DE;
+  display: flex;
+  flex-direction: column;
+  position: sticky;
+  top: 0;
+  height: 100vh;
 }
 
-input {
-  border: 1px solid #ccc;
-  border-radius: 6px;
+.main { flex: 1; min-width: 0; padding: 28px 36px 64px; }
+.content { max-width: 1080px; }
+
+.navlink {
+  display: block;
+  padding: 9px 20px;
+  color: #C9D4DE;
+  text-decoration: none;
   font-size: 14px;
+  border-left: 3px solid transparent;
+}
+.navlink:hover { background: rgba(255,255,255,.06); color: #fff; }
+.navlink[aria-current="page"] {
+  background: rgba(255,255,255,.09);
+  border-left-color: #6FA8DC;
+  color: #fff;
+  font-weight: 500;
+}
+
+@media (max-width: 860px) {
+  .app { flex-direction: column; }
+  .sidebar { width: 100%; flex: none; height: auto; position: static; }
+  .main { padding: 20px 18px 48px; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  * { animation: none !important; transition: none !important; }
 }
