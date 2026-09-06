@@ -1,0 +1,74 @@
+gradio==4.44.0
+# IMPORTANT: do not change this version without also changing your HF
+# Space's SDK version (Settings page) to match. Spaces injects
+# `gradio[oauth]==<sdk_version>` into the build's own pip install command,
+# on top of whatever's in this file (visible in build logs as a second,
+# separate "Collecting gradio==..." line). If this pin doesn't match the
+# Space's SDK version, pip gets two different exact pins for the same
+# package and fails immediately with "Cannot install gradio==X and
+# gradio==Y because these package versions have conflicting dependencies"
+# -- before it even reaches real dependency resolution. (Also: gradio's own
+# "please upgrade to 4.44.1" warning in the logs is safe to ignore --
+# every fix below was verified specifically against 4.44.0.)
+# Pin huggingface_hub explicitly -- newer huggingface_hub releases removed
+# the HfFolder API that gradio==4.44.0's oauth.py still imports at startup,
+# causing "ImportError: cannot import name 'HfFolder' from 'huggingface_hub'"
+# on a fresh install (this bit us on the second deploy attempt, right after
+# fixing the websockets issue below). huggingface_hub<0.26 keeps HfFolder.
+huggingface_hub<0.26
+# Pin pydantic explicitly -- newer pydantic (2.11+, resolves to 2.13.x by
+# default) changed how it generates JSON schemas for dict/TypedDict-style
+# return types (like the plain dicts our functions return), producing a bare
+# `additionalProperties: true` instead of a schema object. gradio==4.44.0's
+# gradio_client.utils.get_type() doesn't handle that and crashes on every
+# request with "TypeError: argument of type 'bool' is not iterable" (this
+# bit us on the third deploy attempt). Reproduced this exact crash locally
+# using our real function signatures and confirmed pydantic==2.10.6 fixes it.
+pydantic==2.10.6
+# Pin fastapi + starlette explicitly -- gradio==4.44.0 still calls the OLD
+# Starlette Jinja2Templates.TemplateResponse(name, context) signature.
+# Starlette 0.36+ (and definitely 1.0+, which is what a fresh install
+# resolves to by default) requires the NEW TemplateResponse(request, name,
+# context) signature instead. Without this pin, gradio passes its context
+# dict into the slot Starlette now expects a template *name* string, which
+# Jinja2 then tries to use as a cache key, crashing every single request
+# to the app's index page with "TypeError: unhashable type: 'dict'" (this
+# bit us on the fourth deploy attempt -- the pydantic fix above worked, the
+# app started, but the actual UI/API page still 500'd on every load).
+# Verified: actually launched a Gradio app with this fastapi/starlette pin
+# and confirmed a real HTTP GET to "/" returns 200 with rendered HTML.
+fastapi<0.115
+starlette<0.40
+supabase==2.7.4
+# Pin realtime + websockets explicitly -- supabase==2.7.4 otherwise pulls the
+# LATEST realtime package, which needs websockets>=13 (websockets.asyncio
+# was added in 13.0), but gradio==4.44.0's bundled gradio-client hard-caps
+# websockets<13. Result without this pin: "ModuleNotFoundError: No module
+# named 'websockets.asyncio'" at import time on a fresh install (this bit
+# us on first deploy). realtime==2.0.6 predates that requirement and works
+# fine for our use case -- we never use Supabase Realtime subscriptions,
+# only plain table().select()/insert()/update()/delete() calls.
+realtime==2.0.6
+websockets>=10,<13
+groq==0.11.0
+# pandas and python-dotenv removed: app.py imports neither. They were
+# inherited from the seed-script requirements. Dropping them speeds up the
+# Space build and avoids pulling a heavy pinned pandas the backend never
+# touches. (The seed scripts in supabase/ keep their own requirements.txt.)
+# NOTE: do NOT list `spaces` here. On ZeroGPU hardware, Hugging Face
+# appends its own pin (e.g. `spaces==0.51.3`) to the pip install command
+# it generates. Pinning a different version in this file produces a hard
+# "ResolutionImpossible" conflict between the two pins and the build
+# fails. The @spaces.GPU decorator in app.py still works, because HF has
+# already installed the package by the time app.py runs.
+
+# firebase-admin removed: auth is now handled natively by Supabase Auth
+# (see the "Auth verification client" section in app.py). Dropping this
+# also removes ~15 transitive Google API dependencies from the build.
+
+# Verified as a full combined install with zero conflicts, and every import
+# app.py actually uses (gradio, supabase, groq)
+# confirmed working together in a clean venv. Also reproduced and confirmed-
+# fixed both the pydantic schema-generation crash AND the Starlette
+# TemplateResponse crash by actually launching a Gradio app with this exact
+# pin set and hitting its index route (HTTP 200, real rendered HTML).
