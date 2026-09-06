@@ -1,21 +1,22 @@
 import { useEffect, useState } from "react";
 import RoleGuard from "../../components/RoleGuard";
+import Layout from "../../components/Layout";
 import ChatPanel from "../../components/ChatPanel";
+import { Card, Table, Badge, Field, Button, Notice } from "../../components/ui";
 import { useAuth } from "../../lib/useAuth";
 import { supabase } from "../../lib/supabase";
 
-function WorkerDashboardContent() {
-  const { profile, logout } = useAuth();
-  const [category, setCategory] = useState("Wages/Payment Delay");
-  const [description, setDescription] = useState("");
-  const [submitted, setSubmitted] = useState(false);
-  const [error, setError] = useState(null);
-  const [saving, setSaving] = useState(false);
-  const [mine, setMine] = useState(null);
-  const [myGrievances, setMyGrievances] = useState([]);
+const CATEGORIES = ["Wages/Payment Delay", "Safety Equipment Shortage", "Housing/Welfare",
+  "Working Hours", "Harassment/Conduct", "Medical Facility", "Transport"];
 
-  // Shows the worker their own filed grievances, so a submission visibly
-  // lands instead of relying on a message that says it did.
+function WorkerContent() {
+  const { profile } = useAuth();
+  const [category, setCategory] = useState(CATEGORIES[0]);
+  const [description, setDescription] = useState("");
+  const [status, setStatus] = useState(null);
+  const [saving, setSaving] = useState(false);
+  const [mine, setMine] = useState([]);
+
   const loadMine = async () => {
     if (!profile?.profile_id) return;
     const { data } = await supabase
@@ -23,118 +24,76 @@ function WorkerDashboardContent() {
       .select("category, description, status, date_filed")
       .eq("filed_by", profile.profile_id)
       .order("date_filed", { ascending: false })
-      .limit(5);
-    setMyGrievances(data || []);
+      .limit(10);
+    setMine(data || []);
   };
 
-  useEffect(() => {
-    loadMine();
-  }, [profile?.profile_id]);
+  useEffect(() => { loadMine(); }, [profile?.profile_id]);
 
-  // BUG FIX: the insert result used to be discarded and setSubmitted(true)
-  // ran unconditionally, so the green "Grievance filed" message appeared
-  // even when the row was rejected -- the failure was completely invisible
-  // both to the worker and to anyone testing. supabase-js does NOT throw on
-  // a failed insert; it resolves with an { error } object, so the error has
-  // to be checked explicitly.
-  const fileGrievance = async () => {
-    setError(null);
-    if (!description.trim()) {
-      setError("Please describe the issue before submitting.");
-      return;
-    }
-    if (!profile?.mine_id) {
-      setError("No mine assigned to your account -- ask an admin to set one.");
-      return;
-    }
+  const file = async () => {
+    setStatus(null);
+    if (!description.trim()) return setStatus({ tone: "error", text: "Describe the issue before submitting." });
+    if (!profile?.mine_id) return setStatus({ tone: "error", text: "No mine assigned to your account. Ask an administrator to set one." });
 
     setSaving(true);
-    const { data, error: insertError } = await supabase
-      .from("grievances")
-      .insert({
-        mine_id: profile.mine_id,
-        subsidiary_id: profile.subsidiary_id ?? null,
-        filed_by: profile.profile_id,
-        date_filed: new Date().toISOString().slice(0, 10),
-        category,
-        description,
-        status: "In Progress",
-        is_synthetic: false,
-      })
-      .select();
+    const { data, error } = await supabase.from("grievances").insert({
+      mine_id: profile.mine_id,
+      subsidiary_id: profile.subsidiary_id ?? null,
+      filed_by: profile.profile_id,
+      date_filed: new Date().toISOString().slice(0, 10),
+      category,
+      description,
+      status: "In Progress",
+      is_synthetic: false,
+    }).select();
     setSaving(false);
 
-    if (insertError) {
-      setError(`Could not file grievance: ${insertError.message}`);
-      return;
-    }
-    if (!data || data.length === 0) {
-      setError(
-        "The insert returned no row. This usually means a row-level security policy blocked it."
-      );
-      return;
-    }
-    setSubmitted(true);
+    if (error) return setStatus({ tone: "error", text: `Could not file this grievance: ${error.message}` });
+    if (!data?.length) return setStatus({ tone: "error", text: "The grievance was not saved. You may not have permission to file at this mine." });
+    setStatus({ tone: "success", text: "Filed. Your mine official can see it now." });
     setDescription("");
     loadMine();
   };
 
   return (
-    <div style={{ fontFamily: "sans-serif", padding: 32, maxWidth: 600, margin: "0 auto" }}>
-      <div style={{ display: "flex", justifyContent: "space-between" }}>
-        <h1>👷 Worker Dashboard</h1>
-        <button onClick={logout}>Log Out</button>
-      </div>
-      <p>Welcome, {profile?.full_name || profile?.email}</p>
+    <Layout title="My mine" subtitle="">
+      <Card title="Raise a grievance" style={{ maxWidth: 560 }}>
+        {status && <Notice tone={status.tone}>{status.text}</Notice>}
+        <Field label="What is this about?">
+          <select value={category} onChange={(e) => setCategory(e.target.value)}>
+            {CATEGORIES.map((c) => <option key={c} value={c}>{c}</option>)}
+          </select>
+        </Field>
+        <Field label="Describe the issue">
+          <textarea rows={4} value={description} onChange={(e) => setDescription(e.target.value)}
+            placeholder="Give as much detail as you can." />
+        </Field>
+        <Button onClick={file} disabled={saving}>{saving ? "Filing" : "File grievance"}</Button>
+      </Card>
 
-      <section style={{ marginTop: 24, border: "1px solid #ddd", borderRadius: 8, padding: 20 }}>
-        <h2>File a Grievance</h2>
-        <select value={category} onChange={(e) => setCategory(e.target.value)} style={{ width: "100%", padding: 8, marginBottom: 8 }}>
-          {["Wages/Payment Delay", "Safety Equipment Shortage", "Housing/Welfare", "Working Hours", "Harassment/Conduct", "Medical Facility", "Transport"]
-            .map((c) => <option key={c} value={c}>{c}</option>)}
-        </select>
-        <textarea
-          value={description}
-          onChange={(e) => setDescription(e.target.value)}
-          placeholder="Describe the issue..."
-          rows={4}
-          style={{ width: "100%", padding: 8, marginBottom: 8 }}
+      <Card title="Grievances you have filed">
+        <Table
+          columns={[
+            { key: "date_filed", label: "Filed", width: 110, nowrap: true },
+            { key: "category", label: "Category", width: 190 },
+            { key: "description", label: "Detail" },
+            { key: "status", label: "Status", width: 120, render: (r) => <Badge>{r.status}</Badge> },
+          ]}
+          rows={mine}
+          severityOf={(r) => r.status}
+          empty="You haven't filed anything yet. Use the form above to raise an issue."
         />
-        <button onClick={fileGrievance} disabled={saving}>
-          {saving ? "Submitting..." : "Submit Grievance"}
-        </button>
-        {error && (
-          <p style={{ color: "#b00", background: "#fee", padding: 10, borderRadius: 6 }}>{error}</p>
-        )}
-        {submitted && !error && (
-          <p style={{ color: "green" }}>Grievance filed. You&apos;ll be notified when it&apos;s reviewed.</p>
-        )}
-      </section>
+      </Card>
 
-      <section style={{ marginTop: 28 }}>
-        <h2>My Grievances</h2>
-        {myGrievances.length === 0 ? (
-          <p style={{ color: "#666" }}>You haven&apos;t filed any yet.</p>
-        ) : (
-          <ul>
-            {myGrievances.map((g, i) => (
-              <li key={i} style={{ marginBottom: 6 }}>
-                <strong>{g.category}</strong> — {g.status} ({g.date_filed})
-                <div style={{ color: "#555" }}>{g.description}</div>
-              </li>
-            ))}
-          </ul>
-        )}
-      </section>
       <ChatPanel />
-    </div>
+    </Layout>
   );
 }
 
 export default function WorkerDashboard() {
   return (
     <RoleGuard allowedRoles={["worker"]}>
-      <WorkerDashboardContent />
+      <WorkerContent />
     </RoleGuard>
   );
 }
