@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import RoleGuard from "../../components/RoleGuard";
 import Layout from "../../components/Layout";
 import ChatPanel from "../../components/ChatPanel";
+import MineMap from "../../components/MineMap";
 import { Card, Table, Badge, Field, Button, Notice } from "../../components/ui";
 import { useAuth } from "../../lib/useAuth";
 import { supabase } from "../../lib/supabase";
@@ -93,6 +94,8 @@ function WorkerContent() {
           empty="You haven't filed anything yet. Use the form above to raise an issue."
         />
       </Card>
+
+      <MineMap />
 
       <ChatPanel />
     </Layout>
