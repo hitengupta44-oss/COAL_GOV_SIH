@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import RoleGuard from "../../components/RoleGuard";
 import Layout from "../../components/Layout";
 import ChatPanel from "../../components/ChatPanel";
+import MineMap from "../../components/MineMap";
 import AlertsPanel from "../../components/AlertsPanel";
 import { Card, StatStrip, Table, Notice, Empty } from "../../components/ui";
 import { useAuth } from "../../lib/useAuth";
@@ -64,6 +65,8 @@ function CorporateContent() {
           />
         )}
       </Card>
+
+      <MineMap />
 
       <ChatPanel />
     </Layout>
