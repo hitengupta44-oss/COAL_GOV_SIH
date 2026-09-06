@@ -11,9 +11,9 @@ function WorkerDashboardContent() {
 
   const fileGrievance = async () => {
     await supabase.from("grievances").insert({
-      mine_id: profile.mine_id,
-      subsidiary_id: profile.subsidiary_id,
-      filed_by: profile.profile_id,
+      mine_id: profile?.mine_id,
+      subsidiary_id: profile?.subsidiary_id,
+      filed_by: profile?.profile_id,
       date_filed: new Date().toISOString().slice(0, 10),
       category,
       description,
@@ -30,7 +30,7 @@ function WorkerDashboardContent() {
         <h1>👷 Worker Dashboard</h1>
         <button onClick={logout}>Log Out</button>
       </div>
-      <p>Welcome, {profile.full_name || profile.email}</p>
+      <p>Welcome, {profile?.full_name || profile?.email}</p>
 
       <section style={{ marginTop: 24, border: "1px solid #ddd", borderRadius: 8, padding: 20 }}>
         <h2>File a Grievance</h2>
