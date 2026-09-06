@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import RoleGuard from "../../components/RoleGuard";
+import ChatPanel from "../../components/ChatPanel";
 import { useAuth } from "../../lib/useAuth";
 import { getDashboardSummary } from "../../lib/api";
 import { supabase } from "../../lib/supabase";
@@ -37,6 +38,7 @@ function RegulatorDashboardContent() {
           <ul>{auditLog.map((a) => <li key={a.log_id}>{a.timestamp} — {a.action} on {a.table_affected}</li>)}</ul>
         ) : <p style={{ color: "#666" }}>No audit entries yet.</p>}
       </section>
+      <ChatPanel />
     </div>
   );
 }
