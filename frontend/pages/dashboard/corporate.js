@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import RoleGuard from "../../components/RoleGuard";
+import ChatPanel from "../../components/ChatPanel";
 import { useAuth } from "../../lib/useAuth";
 import { getDashboardSummary, getHighRiskMines } from "../../lib/api";
 
@@ -84,6 +85,8 @@ function CorporateDashboardContent() {
           </table>
         ) : <p style={{ color: "#666" }}>No risk flags generated yet.</p>}
       </section>
+
+      <ChatPanel />
     </div>
   );
 }
