@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import RoleGuard from "../../components/RoleGuard";
+import ChatPanel from "../../components/ChatPanel";
 import { useAuth } from "../../lib/useAuth";
 import { supabase } from "../../lib/supabase";
 
@@ -47,6 +48,7 @@ function ContractorManagerDashboardContent() {
           </table>
         ) : <p style={{ color: "#666" }}>No contractors found.</p>}
       </section>
+      <ChatPanel />
     </div>
   );
 }
