@@ -87,7 +87,7 @@ function AdminDashboardContent() {
       <div style={{ display: "flex", justifyContent: "space-between" }}>
         <h1>🛠️ Admin Dashboard</h1>
         <div>
-          <span style={{ marginRight: 16 }}>{profile.full_name || profile.email} — {profile.role}</span>
+          <span style={{ marginRight: 16 }}>{profile?.full_name || profile?.email} — {profile?.role}</span>
           <button onClick={logout}>Log Out</button>
         </div>
       </div>
