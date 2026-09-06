@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import RoleGuard from "../../components/RoleGuard";
 import Layout from "../../components/Layout";
 import ChatPanel from "../../components/ChatPanel";
+import AlertsPanel from "../../components/AlertsPanel";
 import { Card, StatStrip, Table, Badge, Button, Notice } from "../../components/ui";
 import { useAuth } from "../../lib/useAuth";
 import { supabase } from "../../lib/supabase";
@@ -70,6 +71,8 @@ function ContractorContent() {
           { label: "Blacklisted", value: blacklisted, tone: blacklisted ? "critical" : null },
         ]}
       />
+
+      <AlertsPanel />
 
       <Card title="Documents needing attention">
         <p style={{ color: "var(--ink-soft)", fontSize: 14, marginTop: -4 }}>
