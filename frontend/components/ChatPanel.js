@@ -202,19 +202,19 @@ export default function ChatPanel({ title = "Ask the Governance Assistant" }) {
   }
 
   return (
-    <section style={{ marginTop: 32, border: "1px solid #ddd", borderRadius: 8, padding: 20 }}>
+    <section style={{ marginTop: 8, marginBottom: 20, background: "var(--surface)", border: "1px solid var(--line)", borderRadius: "var(--radius)", padding: "18px 20px" }}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
         <h2 style={{ margin: 0, fontSize: 18 }}>💬 {title}</h2>
         <button onClick={() => setOpen(false)} style={linkBtn}>Hide</button>
       </div>
 
-      <p style={{ color: "#666", fontSize: 13, marginTop: 6 }}>
-        Answers use live platform data limited to what your role can see.
+      <p style={{ color: "var(--ink-soft)", fontSize: 13, marginTop: 6 }}>
+        Answers use live platform data, limited to what your role can see.
       </p>
 
       {messages.length === 0 && (
         <div style={{ marginBottom: 12 }}>
-          <div style={{ fontSize: 13, color: "#666", marginBottom: 6 }}>Try asking:</div>
+          <div style={{ fontSize: 13, color: "var(--ink-soft)", marginBottom: 8 }}>Questions you can ask</div>
           <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
             {suggestions.map((q) => (
               <button key={q} onClick={() => send(q)} style={chip}>{q}</button>
@@ -232,7 +232,7 @@ export default function ChatPanel({ title = "Ask the Governance Assistant" }) {
               <div style={{ fontWeight: 700 }}>Assistant</div>
               <div>
                 {m.bot === null
-                  ? <em style={{ color: "#888" }}>Thinking...</em>
+                  ? <em style={{ color: "var(--ink-faint)" }}>Working on it</em>
                   : <Markdown text={m.bot} />}
               </div>
             </div>
@@ -246,7 +246,7 @@ export default function ChatPanel({ title = "Ask the Governance Assistant" }) {
           onChange={(e) => setInput(e.target.value)}
           onKeyDown={(e) => e.key === "Enter" && send()}
           placeholder="Ask about compliance, safety, or your mine's data..."
-          style={{ flex: 1, padding: 10 }}
+          style={{ flex: 1 }}
           disabled={sending}
         />
         <button onClick={() => send()} disabled={sending} style={sendBtn}>
@@ -264,28 +264,37 @@ export default function ChatPanel({ title = "Ask the Governance Assistant" }) {
 }
 
 const log = {
-  border: "1px solid #eee",
-  borderRadius: 6,
-  padding: 12,
-  maxHeight: 320,
+  border: "1px solid var(--line)",
+  borderRadius: "var(--radius)",
+  padding: 14,
+  maxHeight: 340,
   overflowY: "auto",
-  background: "#fafafa",
+  background: "var(--page)",
   fontSize: 14,
 };
 const chip = {
   padding: "6px 12px",
-  borderRadius: 16,
-  border: "1px solid #ccc",
-  background: "#fff",
+  borderRadius: "var(--radius)",
+  border: "1px solid var(--line-strong)",
+  background: "var(--surface)",
+  color: "var(--ink)",
   cursor: "pointer",
   fontSize: 13,
+  textAlign: "left",
 };
-const sendBtn = { padding: "10px 18px", cursor: "pointer" };
-const openBtn = { padding: "10px 18px", cursor: "pointer", fontSize: 15 };
+const sendBtn = {
+  padding: "9px 18px", cursor: "pointer", background: "var(--primary)",
+  color: "#fff", border: "1px solid var(--primary)", borderRadius: "var(--radius)", fontWeight: 500,
+};
+const openBtn = {
+  padding: "9px 16px", cursor: "pointer", background: "var(--surface)",
+  color: "var(--ink)", border: "1px solid var(--line-strong)",
+  borderRadius: "var(--radius)", fontSize: 14, fontWeight: 500,
+};
 const linkBtn = {
   background: "none",
   border: "none",
-  color: "#06c",
+  color: "var(--primary)",
   cursor: "pointer",
   fontSize: 13,
   padding: 0,
