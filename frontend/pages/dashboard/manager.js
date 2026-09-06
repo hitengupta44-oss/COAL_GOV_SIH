@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import RoleGuard from "../../components/RoleGuard";
 import Layout from "../../components/Layout";
 import ChatPanel from "../../components/ChatPanel";
+import AlertsPanel from "../../components/AlertsPanel";
 import { Card, StatStrip, Table, Badge, Notice } from "../../components/ui";
 import { useAuth } from "../../lib/useAuth";
 import { getComplianceStatus, updateComplianceStatus } from "../../lib/api";
@@ -115,6 +116,8 @@ function ManagerContent() {
             note: overdueGrievances ? `${overdueGrievances} past deadline` : undefined },
         ]}
       />
+
+      <AlertsPanel />
 
       <Card title="Statutory compliance">
         <Table
