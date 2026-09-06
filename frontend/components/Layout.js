@@ -38,13 +38,30 @@ export default function Layout({ title, subtitle, children }) {
   // same screen looks identical whichever mine you're assigned to, and
   // "overdue at my mine" is meaningless if you can't see which mine.
   useEffect(() => {
-    if (!profile?.mine_id) return;
+    // `cancelled` guards against setting state after logout has unmounted
+    // this component: the query is in flight when the session is torn down,
+    // and resolving into a dead component is a classic source of the blank
+    // "client-side exception" screen. The catch matters too -- once the
+    // session is gone the request can reject rather than resolve.
+    let cancelled = false;
+    if (!profile?.mine_id) {
+      setMine(null);
+      return;
+    }
     supabase
       .from("mines")
       .select("mine_name, state")
       .eq("mine_id", profile.mine_id)
       .maybeSingle()
-      .then(({ data }) => setMine(data || null));
+      .then(({ data }) => {
+        if (!cancelled) setMine(data || null);
+      })
+      .catch(() => {
+        if (!cancelled) setMine(null);
+      });
+    return () => {
+      cancelled = true;
+    };
   }, [profile?.mine_id]);
 
   const links = NAV[profile?.role] || [];
@@ -80,7 +97,12 @@ export default function Layout({ title, subtitle, children }) {
             {ROLE_LABEL[profile?.role] || profile?.role}
           </div>
           <button
-            onClick={logout}
+            onClick={() => {
+              // Errors here are swallowed on purpose: whatever happens to
+              // the network call, the user asked to leave, and useAuth
+              // clears local state either way.
+              Promise.resolve(logout()).catch(() => {});
+            }}
             style={{
               background: "none",
               border: "1px solid rgba(255,255,255,.28)",
