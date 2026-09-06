@@ -13,15 +13,36 @@
 // Supabase client auto-refreshes near expiry, so read it fresh rather
 // than caching it yourself.
 
-const BACKEND_URL = process.env.NEXT_PUBLIC_BACKEND_URL; // e.g. https://yourname-coal-backend.hf.space
+// The env var still wins if it's set, but there's a hardcoded fallback so
+// the app works even when NEXT_PUBLIC_BACKEND_URL doesn't make it into the
+// build. That happens more easily than you'd think: NEXT_PUBLIC_* values
+// are compiled in at BUILD time, so setting one in Vercel and not
+// redeploying leaves it undefined. When it's undefined the template below
+// produces "undefined/api/foo", which the browser resolves as a RELATIVE
+// path against the Vercel domain -- so the request never reaches the Space
+// and Next.js answers it with a 404 that looks like a backend failure.
+//
+// Change the fallback if you move the Space. No trailing slash.
+const BACKEND_URL =
+  process.env.NEXT_PUBLIC_BACKEND_URL || "https://beastzzz-coal-gov.hf.space";
+
+// Trailing slashes are stripped so a value like "https://x.hf.space/"
+// doesn't produce a double-slash URL that 404s.
+const BASE = String(BACKEND_URL).replace(/\/+$/, "");
 
 async function callBackend(fnName, args = []) {
-  const res = await fetch(`${BACKEND_URL}/api/${fnName}`, {
+  const url = `${BASE}/api/${fnName}`;
+  const res = await fetch(url, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ data: args }),
   });
-  if (!res.ok) throw new Error(`Backend call failed: ${fnName} (${res.status})`);
+  // The URL is included in the error on purpose: a bare status code can't
+  // distinguish "the Space returned 404" from "we called the wrong host and
+  // Vercel returned 404", and those need opposite fixes.
+  if (!res.ok) {
+    throw new Error(`Backend call failed: ${fnName} (${res.status}) at ${url}`);
+  }
   const json = await res.json();
   return json.data ? json.data[0] : json;
 }
