@@ -1,39 +1,23 @@
 import { useEffect, useState } from "react";
 import RoleGuard from "../../components/RoleGuard";
+import Layout from "../../components/Layout";
 import ChatPanel from "../../components/ChatPanel";
+import { Card, Table, Badge, Field, Button, Notice } from "../../components/ui";
 import { useAuth } from "../../lib/useAuth";
 import { logFieldInspection } from "../../lib/api";
 import { supabase } from "../../lib/supabase";
 
-function InspectorDashboardContent() {
-  const { profile, logout, getAccessToken } = useAuth();
-  const [mineName, setMineName] = useState("");
-  const [obsType, setObsType] = useState("Safety Equipment Check");
+const OBSERVATIONS = ["Safety Equipment Check", "Ventilation Inspection", "Slope Stability",
+  "Electrical Safety", "Housekeeping", "Water Accumulation", "PPE Compliance"];
+
+function InspectorContent() {
+  const { profile, getAccessToken } = useAuth();
+  const [obsType, setObsType] = useState(OBSERVATIONS[0]);
   const [severity, setSeverity] = useState("Low");
   const [notes, setNotes] = useState("");
-  const [status, setStatus] = useState("");
+  const [status, setStatus] = useState(null);
   const [submitting, setSubmitting] = useState(false);
   const [recent, setRecent] = useState([]);
-
-  // The mine is no longer typed in by hand. It used to be a free-text
-  // "Mine ID (UUID)" box, which was unusable in practice -- nobody can
-  // recall a UUID, and the backend rejects any mine other than the
-  // inspector's own anyway (see log_field_inspection's _require_own_mine
-  // check), so that field could only ever produce the right answer or an
-  // error. We read the assigned mine off the profile and show its name.
-  useEffect(() => {
-    if (!profile?.mine_id) return;
-    supabase
-      .from("mines")
-      .select("mine_name, state, district")
-      .eq("mine_id", profile.mine_id)
-      .maybeSingle()
-      .then(({ data }) => {
-        if (data) {
-          setMineName([data.mine_name, data.district, data.state].filter(Boolean).join(", "));
-        }
-      });
-  }, [profile?.mine_id]);
 
   const loadRecent = async () => {
     if (!profile?.mine_id) return;
@@ -42,33 +26,27 @@ function InspectorDashboardContent() {
       .select("observation_type, severity, notes, timestamp, latitude, longitude")
       .eq("mine_id", profile.mine_id)
       .order("timestamp", { ascending: false })
-      .limit(8);
+      .limit(10);
     setRecent(data || []);
   };
 
-  useEffect(() => {
-    loadRecent();
-  }, [profile?.mine_id]);
+  useEffect(() => { loadRecent(); }, [profile?.mine_id]);
 
-  const submitInspection = async () => {
-    if (!profile?.mine_id) {
-      setStatus("No mine assigned to your account -- ask an admin to set one.");
-      return;
-    }
-    if (!navigator.geolocation) {
-      setStatus("Geolocation not available on this device.");
-      return;
-    }
+  // Location is captured rather than typed: the point of a geo-tagged
+  // inspection is that the coordinates come from the device at the site,
+  // not from whatever the inspector types afterwards.
+  const submit = async () => {
+    if (!profile?.mine_id) return setStatus({ tone: "error", text: "No mine assigned to your account. Ask an administrator to set one." });
+    if (!navigator.geolocation) return setStatus({ tone: "error", text: "This device can't provide a location, which is required for a geo-tagged inspection." });
 
     setSubmitting(true);
-    setStatus("Getting your location...");
-    const accessToken = await getAccessToken();
+    setStatus({ tone: "info", text: "Getting your location." });
+    const token = await getAccessToken();
 
     navigator.geolocation.getCurrentPosition(
       async (pos) => {
         try {
-          setStatus("Submitting...");
-          const result = await logFieldInspection(accessToken, {
+          const res = await logFieldInspection(token, {
             mineId: profile.mine_id,
             latitude: pos.coords.latitude,
             longitude: pos.coords.longitude,
@@ -76,23 +54,18 @@ function InspectorDashboardContent() {
             severity,
             notes,
           });
-          if (result?.error) {
-            setStatus(`Couldn't log inspection: ${result.error}`);
-          } else {
-            setStatus(
-              `Inspection logged at ${pos.coords.latitude.toFixed(5)}, ${pos.coords.longitude.toFixed(5)}`
-            );
+          if (res?.error) setStatus({ tone: "error", text: res.error });
+          else {
+            setStatus({ tone: "success", text: `Recorded at ${pos.coords.latitude.toFixed(5)}, ${pos.coords.longitude.toFixed(5)}.` });
             setNotes("");
             loadRecent();
           }
         } catch (e) {
-          setStatus(`Couldn't log inspection: ${e.message || e}`);
-        } finally {
-          setSubmitting(false);
-        }
+          setStatus({ tone: "error", text: String(e.message || e) });
+        } finally { setSubmitting(false); }
       },
       () => {
-        setStatus("Location permission denied -- required for geo-tagged inspections.");
+        setStatus({ tone: "error", text: "Location access was refused. Allow it to record a geo-tagged inspection." });
         setSubmitting(false);
       },
       { enableHighAccuracy: true, timeout: 15000 }
@@ -100,86 +73,55 @@ function InspectorDashboardContent() {
   };
 
   return (
-    <div style={{ fontFamily: "sans-serif", padding: 32, maxWidth: 700, margin: "0 auto" }}>
-      <div style={{ display: "flex", justifyContent: "space-between" }}>
-        <h1>🔍 Inspector Dashboard</h1>
-        <button onClick={logout}>Log Out</button>
-      </div>
-      <p>{profile?.full_name || profile?.email} — Field Inspector</p>
+    <Layout title="Inspections" subtitle="">
+      <Card title="Record an inspection" style={{ maxWidth: 560 }}>
+        {status && <Notice tone={status.tone}>{status.text}</Notice>}
+        <Field label="Observation">
+          <select value={obsType} onChange={(e) => setObsType(e.target.value)}>
+            {OBSERVATIONS.map((o) => <option key={o} value={o}>{o}</option>)}
+          </select>
+        </Field>
+        <Field label="Severity">
+          <select value={severity} onChange={(e) => setSeverity(e.target.value)}>
+            {["Low", "Medium", "High", "Critical"].map((s) => <option key={s} value={s}>{s}</option>)}
+          </select>
+        </Field>
+        <Field label="Notes">
+          <textarea rows={3} value={notes} onChange={(e) => setNotes(e.target.value)}
+            placeholder="What did you observe?" />
+        </Field>
+        <Button onClick={submit} disabled={submitting}>
+          {submitting ? "Recording" : "Record inspection"}
+        </Button>
+        <p style={{ fontSize: 13, color: "var(--ink-faint)", margin: "10px 0 0" }}>
+          Your location is captured automatically when you record.
+        </p>
+      </Card>
 
-      <section style={{ marginTop: 24, border: "1px solid #ddd", borderRadius: 8, padding: 20 }}>
-        <h2 style={{ marginTop: 0 }}>Log Field Inspection</h2>
+      <Card title="Recorded at this mine">
+        <Table
+          columns={[
+            { key: "timestamp", label: "When", width: 170, nowrap: true,
+              render: (r) => (r.timestamp ? new Date(r.timestamp).toLocaleString() : "—") },
+            { key: "observation_type", label: "Observation" },
+            { key: "severity", label: "Severity", width: 110, render: (r) => <Badge>{r.severity}</Badge> },
+            { key: "notes", label: "Notes", render: (r) => r.notes || "—" },
+          ]}
+          rows={recent}
+          severityOf={(r) => r.severity}
+          empty="No inspections recorded here yet. Your first one will appear in this list."
+        />
+      </Card>
 
-        <div style={{ marginBottom: 12 }}>
-          <div style={{ fontSize: 13, color: "#666" }}>Mine</div>
-          <div style={{ fontWeight: 600 }}>
-            {mineName || (profile?.mine_id ? "Loading..." : "No mine assigned")}
-          </div>
-        </div>
-
-        <label style={lbl}>Observation type</label>
-        <select value={obsType} onChange={(e) => setObsType(e.target.value)} style={fld}>
-          {["Safety Equipment Check", "Ventilation Inspection", "Slope Stability",
-            "Electrical Safety", "Housekeeping", "Water Accumulation", "PPE Compliance"]
-            .map((o) => <option key={o} value={o}>{o}</option>)}
-        </select>
-
-        <label style={lbl}>Severity</label>
-        <select value={severity} onChange={(e) => setSeverity(e.target.value)} style={fld}>
-          {["Low", "Medium", "High", "Critical"].map((s) => <option key={s} value={s}>{s}</option>)}
-        </select>
-
-        <label style={lbl}>Notes</label>
-        <textarea value={notes} onChange={(e) => setNotes(e.target.value)}
-          placeholder="What did you observe?" rows={3} style={fld} />
-
-        <button onClick={submitInspection} disabled={submitting} style={{ padding: "8px 16px" }}>
-          {submitting ? "Submitting..." : "Submit (captures GPS automatically)"}
-        </button>
-        {status && <p style={{ marginTop: 10 }}>{status}</p>}
-      </section>
-
-      <section style={{ marginTop: 32 }}>
-        <h2>Recent Inspections at This Mine</h2>
-        {recent.length === 0 ? (
-          <p style={{ color: "#666" }}>None logged yet.</p>
-        ) : (
-          <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 14 }}>
-            <thead>
-              <tr>
-                <th style={th}>When</th>
-                <th style={th}>Type</th>
-                <th style={th}>Severity</th>
-                <th style={th}>Notes</th>
-              </tr>
-            </thead>
-            <tbody>
-              {recent.map((r, i) => (
-                <tr key={i}>
-                  <td style={td}>{r.timestamp ? new Date(r.timestamp).toLocaleString() : "—"}</td>
-                  <td style={td}>{r.observation_type}</td>
-                  <td style={td}>{r.severity}</td>
-                  <td style={td}>{r.notes || "—"}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        )}
-      </section>
       <ChatPanel />
-    </div>
+    </Layout>
   );
 }
-
-const lbl = { display: "block", fontSize: 13, color: "#666", marginBottom: 4 };
-const fld = { width: "100%", padding: 8, marginBottom: 12 };
-const th = { textAlign: "left", borderBottom: "2px solid #ddd", padding: 8 };
-const td = { borderBottom: "1px solid #eee", padding: 8 };
 
 export default function InspectorDashboard() {
   return (
     <RoleGuard allowedRoles={["inspector"]}>
-      <InspectorDashboardContent />
+      <InspectorContent />
     </RoleGuard>
   );
 }
