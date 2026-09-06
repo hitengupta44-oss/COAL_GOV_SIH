@@ -53,6 +53,7 @@ export default function MineMap({ height = 460 }) {
   const { profile } = useAuth();
   const holder = useRef(null);
   const mapRef = useRef(null);
+  const observerRef = useRef(null);
   const [status, setStatus] = useState("Loading map");
   const [counts, setCounts] = useState(null);
 
@@ -143,9 +144,36 @@ export default function MineMap({ height = 460 }) {
             );
         });
 
-        map.fitBounds(points, { padding: [30, 30], maxZoom: 8 });
         setCounts(tally);
         setStatus(null);
+
+        // Leaflet measures its container once, at construction. This card
+        // is still being laid out at that moment -- and it was hidden
+        // (display:none) while `status` was set -- so the map computed a
+        // near-zero size and only ever requested the handful of tiles that
+        // fitted it. That is the grey area with a sliver of map in the
+        // corner.
+        //
+        // invalidateSize() forces a re-measure. It runs after the browser
+        // has painted, then the bounds are applied so the fit is against
+        // the real dimensions rather than the stale ones.
+        requestAnimationFrame(() => {
+          if (cancelled || !mapRef.current) return;
+          map.invalidateSize(false);
+          map.fitBounds(points, { padding: [30, 30], maxZoom: 8 });
+        });
+
+        // Anything that changes the card's width later -- the window
+        // resizing, the sidebar reflowing at a breakpoint, a panel above
+        // expanding -- leaves the same stale measurement behind, so keep
+        // watching rather than measuring once.
+        if (typeof ResizeObserver !== "undefined") {
+          const ro = new ResizeObserver(() => {
+            if (mapRef.current) mapRef.current.invalidateSize(false);
+          });
+          ro.observe(holder.current);
+          observerRef.current = ro;
+        }
       } catch (e) {
         if (!cancelled) setStatus(`Could not draw the map: ${e.message || e}`);
       }
@@ -153,6 +181,10 @@ export default function MineMap({ height = 460 }) {
 
     return () => {
       cancelled = true;
+      if (observerRef.current) {
+        observerRef.current.disconnect();
+        observerRef.current = null;
+      }
       if (mapRef.current) {
         mapRef.current.remove();
         mapRef.current = null;
@@ -182,7 +214,10 @@ export default function MineMap({ height = 460 }) {
           width: "100%",
           borderRadius: "var(--radius)",
           border: "1px solid var(--line)",
-          display: status ? "none" : "block",
+          // Kept in the layout rather than display:none while loading:
+          // Leaflet cannot measure a hidden element, and a map built
+          // against a zero-size container never recovers on its own.
+          visibility: status ? "hidden" : "visible",
         }}
       />
 
