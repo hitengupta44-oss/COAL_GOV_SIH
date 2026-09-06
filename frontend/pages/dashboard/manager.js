@@ -3,7 +3,7 @@ import RoleGuard from "../../components/RoleGuard";
 import Layout from "../../components/Layout";
 import ChatPanel from "../../components/ChatPanel";
 import AlertsPanel from "../../components/AlertsPanel";
-import { Card, StatStrip, Table, Badge, Notice } from "../../components/ui";
+import { Card, StatStrip, Table, Badge, Button, Notice } from "../../components/ui";
 import { useAuth } from "../../lib/useAuth";
 import { getComplianceStatus, updateComplianceStatus } from "../../lib/api";
 import { supabase } from "../../lib/supabase";
