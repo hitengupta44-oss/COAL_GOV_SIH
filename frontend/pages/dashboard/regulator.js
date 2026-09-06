@@ -4,6 +4,7 @@ import Layout from "../../components/Layout";
 import ChatPanel from "../../components/ChatPanel";
 import MineMap from "../../components/MineMap";
 import ReportPanel from "../../components/ReportPanel";
+import GrievanceOverview from "../../components/GrievanceOverview";
 import AlertsPanel from "../../components/AlertsPanel";
 import { Card, StatStrip, Table, Notice } from "../../components/ui";
 import { useAuth } from "../../lib/useAuth";
@@ -33,7 +34,7 @@ function RegulatorContent() {
       .from("audit_log")
       .select("action, table_affected, details, timestamp")
       .order("timestamp", { ascending: false })
-      .limit(20)
+      .limit(300)
       .then(({ data }) => setAuditLog(data || []));
   }, []);
 
@@ -82,9 +83,12 @@ function RegulatorContent() {
               ) },
           ]}
           rows={auditLog || []}
+          countLabel="entries"
           empty="No changes recorded yet. Entries appear here when a mine official updates a compliance item."
         />
       </Card>
+
+      <GrievanceOverview mode="regulator" />
 
       <ReportPanel />
 
