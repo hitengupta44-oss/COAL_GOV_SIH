@@ -1,121 +1,134 @@
 import { useEffect, useState } from "react";
 import RoleGuard from "../../components/RoleGuard";
+import Layout from "../../components/Layout";
 import ChatPanel from "../../components/ChatPanel";
+import { Card, StatStrip, Table, Badge, Notice } from "../../components/ui";
 import { useAuth } from "../../lib/useAuth";
 import { getComplianceStatus, updateComplianceStatus } from "../../lib/api";
 import { supabase } from "../../lib/supabase";
 
 const STATUS_OPTIONS = ["Completed", "Pending", "Overdue", "Not Applicable"];
 
-function ManagerDashboardContent() {
-  const { profile, logout, getAccessToken } = useAuth();
+function ManagerContent() {
+  const { profile, getAccessToken } = useAuth();
   const [compliance, setCompliance] = useState(null);
   const [grievances, setGrievances] = useState(null);
   const [contractors, setContractors] = useState(null);
   const [savingId, setSavingId] = useState(null);
+  const [error, setError] = useState(null);
 
   const loadCompliance = async () => {
     if (!profile?.mine_id) return;
-    const accessToken = await getAccessToken();
-    getComplianceStatus(accessToken, profile.mine_id).then(setCompliance).catch(console.error);
+    const token = await getAccessToken();
+    const c = await getComplianceStatus(token, profile.mine_id);
+    if (c?.error) setError(c.error);
+    else setCompliance(Array.isArray(c) ? c : []);
   };
 
   useEffect(() => {
     if (!profile?.mine_id) return;
-
     loadCompliance();
-
-    supabase.from("grievances").select("*")
-      .eq("mine_id", profile.mine_id)
-      .order("date_filed", { ascending: false })
-      .limit(10)
-      .then(({ data }) => setGrievances(data));
-
-    supabase.from("contractors").select("*")
-      .eq("mine_id", profile.mine_id)
-      .then(({ data }) => setContractors(data));
-  }, [profile]);
+    supabase.from("grievances").select("*").eq("mine_id", profile.mine_id)
+      .order("date_filed", { ascending: false }).limit(10)
+      .then(({ data }) => setGrievances(data || []));
+    supabase.from("contractors").select("*").eq("mine_id", profile.mine_id)
+      .then(({ data }) => setContractors(data || []));
+  }, [profile?.mine_id]);
 
   const handleStatusChange = async (trackingId, newStatus) => {
     setSavingId(trackingId);
+    setError(null);
     try {
-      const accessToken = await getAccessToken();
-      await updateComplianceStatus(accessToken, trackingId, newStatus, "");
-      loadCompliance(); // refetch so due_date/completed_date/status all stay in sync
-    } catch (err) {
-      console.error(err);
-      alert("Couldn't save that update -- see console for details.");
+      const token = await getAccessToken();
+      const res = await updateComplianceStatus(token, trackingId, newStatus, "");
+      if (res?.error) setError(res.error);
+      else await loadCompliance();
+    } catch (e) {
+      setError(String(e.message || e));
     } finally {
       setSavingId(null);
     }
   };
 
+  const overdue = (compliance || []).filter((c) => c.status === "Overdue").length;
+  const pending = (compliance || []).filter((c) => c.status === "Pending").length;
+  const openGrievances = (grievances || []).filter((g) => g.status !== "Resolved").length;
+
   return (
-    <div style={{ fontFamily: "sans-serif", padding: 32, maxWidth: 1000, margin: "0 auto" }}>
-      <div style={{ display: "flex", justifyContent: "space-between" }}>
-        <h1>🏭 Mine Manager Dashboard</h1>
-        <div>
-          <span style={{ marginRight: 16 }}>{profile.full_name || profile.email} — {profile.role}</span>
-          <button onClick={logout}>Log Out</button>
-        </div>
-      </div>
+    <Layout title="Mine operations" subtitle="">
+      {error && <Notice tone="error">{error}</Notice>}
 
-      <section style={{ marginTop: 24 }}>
-        <h2>Compliance Checklist</h2>
-        {compliance?.length ? (
-          <table style={{ width: "100%", borderCollapse: "collapse" }}>
-            <thead>
-              <tr><th style={th}>Requirement</th><th style={th}>Category</th><th style={th}>Status</th><th style={th}>Due</th><th style={th}></th></tr>
-            </thead>
-            <tbody>
-              {compliance.map((c) => (
-                <tr key={c.tracking_id}>
-                  <td style={td}>{c.statutory_compliance_items?.requirement_summary}</td>
-                  <td style={td}>{c.statutory_compliance_items?.category}</td>
-                  <td style={td}>{c.status}</td>
-                  <td style={td}>{c.due_date}</td>
-                  <td style={td}>
-                    <select
-                      value={c.status}
-                      disabled={savingId === c.tracking_id}
-                      onChange={(e) => handleStatusChange(c.tracking_id, e.target.value)}
-                    >
-                      {STATUS_OPTIONS.map((s) => <option key={s} value={s}>{s}</option>)}
-                    </select>
-                    {savingId === c.tracking_id && <span style={{ marginLeft: 8, fontSize: 12, color: "#666" }}>Saving...</span>}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        ) : <p style={{ color: "#666" }}>No compliance items loaded for this mine yet.</p>}
-      </section>
+      <StatStrip
+        items={[
+          { label: "Overdue obligations", value: overdue, tone: overdue ? "critical" : null },
+          { label: "Pending obligations", value: pending, tone: pending ? "medium" : null },
+          { label: "Open grievances", value: openGrievances, tone: openGrievances ? "high" : null },
+        ]}
+      />
 
-      <section style={{ marginTop: 32 }}>
-        <h2>Recent Grievances</h2>
-        {grievances?.length ? (
-          <ul>{grievances.map((g) => <li key={g.grievance_id}>{g.date_filed} — {g.category} — {g.status}</li>)}</ul>
-        ) : <p style={{ color: "#666" }}>No grievances filed at this mine.</p>}
-      </section>
+      <Card title="Statutory compliance">
+        <Table
+          columns={[
+            { key: "req", label: "Requirement",
+              render: (r) => r.statutory_compliance_items?.requirement_summary || "—" },
+            { key: "cat", label: "Area", width: 110,
+              render: (r) => r.statutory_compliance_items?.category || "—" },
+            { key: "due", label: "Due", width: 110, nowrap: true, render: (r) => r.due_date || "—" },
+            { key: "status", label: "Status", width: 110, render: (r) => <Badge>{r.status}</Badge> },
+            { key: "set", label: "Change to", width: 150,
+              render: (r) => (
+                <select
+                  value={r.status || "Pending"}
+                  disabled={savingId === r.tracking_id}
+                  onChange={(e) => handleStatusChange(r.tracking_id, e.target.value)}
+                >
+                  {STATUS_OPTIONS.map((s) => <option key={s} value={s}>{s}</option>)}
+                </select>
+              ) },
+          ]}
+          rows={compliance || []}
+          severityOf={(r) => r.status}
+          empty="No compliance items recorded for this mine."
+        />
+      </Card>
 
-      <section style={{ marginTop: 32 }}>
-        <h2>Contractors at this Mine</h2>
-        {contractors?.length ? (
-          <ul>{contractors.map((c) => <li key={c.contractor_id}>{c.contractor_name} — {c.contract_type} — {c.status}</li>)}</ul>
-        ) : <p style={{ color: "#666" }}>No contractors assigned.</p>}
-      </section>
+      <Card title="Grievances">
+        <Table
+          columns={[
+            { key: "category", label: "Category", width: 180 },
+            { key: "description", label: "Detail" },
+            { key: "date_filed", label: "Filed", width: 110, nowrap: true },
+            { key: "status", label: "Status", width: 120, render: (r) => <Badge>{r.status}</Badge> },
+          ]}
+          rows={grievances || []}
+          severityOf={(r) => r.status}
+          empty="No grievances filed at this mine."
+        />
+      </Card>
+
+      <Card title="Contractors on site">
+        <Table
+          columns={[
+            { key: "contractor_name", label: "Contractor" },
+            { key: "contract_type", label: "Scope" },
+            { key: "contract_end", label: "Contract ends", width: 130, nowrap: true },
+            { key: "status", label: "Status", width: 120, render: (r) => <Badge>{r.status}</Badge> },
+          ]}
+          rows={contractors || []}
+          severityOf={(r) => r.status}
+          empty="No contractors assigned to this mine."
+        />
+      </Card>
+
       <ChatPanel />
-    </div>
+    </Layout>
   );
 }
-
-const th = { textAlign: "left", borderBottom: "2px solid #ddd", padding: 8 };
-const td = { borderBottom: "1px solid #eee", padding: 8 };
 
 export default function ManagerDashboard() {
   return (
     <RoleGuard allowedRoles={["mine_official"]}>
-      <ManagerDashboardContent />
+      <ManagerContent />
     </RoleGuard>
   );
 }
