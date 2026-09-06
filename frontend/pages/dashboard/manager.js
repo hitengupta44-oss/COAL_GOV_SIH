@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import RoleGuard from "../../components/RoleGuard";
+import ChatPanel from "../../components/ChatPanel";
 import { useAuth } from "../../lib/useAuth";
 import { getComplianceStatus, updateComplianceStatus } from "../../lib/api";
 import { supabase } from "../../lib/supabase";
@@ -103,6 +104,7 @@ function ManagerDashboardContent() {
           <ul>{contractors.map((c) => <li key={c.contractor_id}>{c.contractor_name} — {c.contract_type} — {c.status}</li>)}</ul>
         ) : <p style={{ color: "#666" }}>No contractors assigned.</p>}
       </section>
+      <ChatPanel />
     </div>
   );
 }
