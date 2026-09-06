@@ -7,12 +7,33 @@ function CorporateDashboardContent() {
   const { profile, logout, getAccessToken } = useAuth();
   const [summary, setSummary] = useState(null);
   const [riskMines, setRiskMines] = useState(null);
+  const [error, setError] = useState(null);
 
+  // Errors are surfaced on the page rather than only console.error'd.
+  // Silently swallowing them is what made this hard to debug: a failing
+  // call just left the KPI cards showing "—", which looks identical to
+  // "the data is genuinely zero" and gives no clue that anything broke.
+  // Note the backend returns errors as a normal 200 response with an
+  // {error: "..."} body, so a rejected promise is not the only failure
+  // mode -- the resolved value has to be checked too.
   useEffect(() => {
     (async () => {
-      const accessToken = await getAccessToken();
-      getDashboardSummary(accessToken, "All").then(setSummary).catch(console.error);
-      getHighRiskMines(accessToken, 10).then(setRiskMines).catch(console.error);
+      try {
+        const accessToken = await getAccessToken();
+        if (!accessToken) {
+          setError("No access token -- your session may have expired. Try logging in again.");
+          return;
+        }
+        const s = await getDashboardSummary(accessToken, "All");
+        if (s && s.error) setError(`Backend: ${s.error}`);
+        else setSummary(s);
+
+        const r = await getHighRiskMines(accessToken, 10);
+        if (r && r.error) setError((e) => e || `Backend: ${r.error}`);
+        else setRiskMines(r);
+      } catch (e) {
+        setError(String(e.message || e));
+      }
     })();
   }, []);
 
@@ -23,6 +44,11 @@ function CorporateDashboardContent() {
         <button onClick={logout}>Log Out</button>
       </div>
       <p>{profile?.full_name || profile?.email} — Corporate Management</p>
+      {error && (
+        <p style={{ color: "#b00", background: "#fee", padding: 12, borderRadius: 6 }}>
+          {error}
+        </p>
+      )}
 
       <section style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 16, marginTop: 24 }}>
         <StatCard label="Total Mines" value={summary?.total_mines ?? "—"} />
