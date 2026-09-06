@@ -59,12 +59,37 @@ function CorporateDashboardContent() {
       <section style={{ marginTop: 32 }}>
         <h2>High-Risk Mines (Cross-Subsidiary)</h2>
         {Array.isArray(riskMines) && riskMines.length > 0 ? (
-          <ul>{riskMines.map((m, i) => <li key={i}>{m.mine_id} — {m.flag_type} — risk {m.risk_score}</li>)}</ul>
+          <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 14 }}>
+            <thead>
+              <tr>
+                <th style={th}>Mine</th>
+                <th style={th}>State</th>
+                <th style={th}>Flag</th>
+                <th style={th}>Risk</th>
+                <th style={th}>Why</th>
+              </tr>
+            </thead>
+            <tbody>
+              {riskMines.map((m, i) => (
+                <tr key={i}>
+                  {/* falls back to the id only when the name lookup missed */}
+                  <td style={td}>{m.mine_name || m.mine_id}</td>
+                  <td style={td}>{m.state || "—"}</td>
+                  <td style={td}>{m.flag_type}</td>
+                  <td style={{ ...td, fontWeight: 700 }}>{m.risk_score}</td>
+                  <td style={td}>{m.explanation || "—"}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
         ) : <p style={{ color: "#666" }}>No risk flags generated yet.</p>}
       </section>
     </div>
   );
 }
+
+const th = { textAlign: "left", borderBottom: "2px solid #ddd", padding: 8 };
+const td = { borderBottom: "1px solid #eee", padding: 8, verticalAlign: "top" };
 
 function StatCard({ label, value }) {
   return (
