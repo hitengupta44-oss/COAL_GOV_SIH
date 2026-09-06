@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import RoleGuard from "../../components/RoleGuard";
 import Layout from "../../components/Layout";
 import ChatPanel from "../../components/ChatPanel";
+import MineMap from "../../components/MineMap";
 import AlertsPanel from "../../components/AlertsPanel";
 import { Card, StatStrip, Table, Badge, Button, Notice } from "../../components/ui";
 import { useAuth } from "../../lib/useAuth";
@@ -120,6 +121,8 @@ function ContractorContent() {
           empty="No contractors on record for your subsidiary."
         />
       </Card>
+
+      <MineMap />
 
       <ChatPanel />
     </Layout>
