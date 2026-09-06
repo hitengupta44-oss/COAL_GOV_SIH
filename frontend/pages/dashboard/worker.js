@@ -21,7 +21,7 @@ function WorkerContent() {
     if (!profile?.profile_id) return;
     const { data } = await supabase
       .from("grievances")
-      .select("category, description, status, date_filed")
+      .select("category, description, status, date_filed, resolution_note, resolved_at, priority")
       .eq("filed_by", profile.profile_id)
       .order("date_filed", { ascending: false })
       .limit(10);
@@ -78,6 +78,15 @@ function WorkerContent() {
             { key: "category", label: "Category", width: 190 },
             { key: "description", label: "Detail" },
             { key: "status", label: "Status", width: 120, render: (r) => <Badge>{r.status}</Badge> },
+            // Showing the outcome, not just the status, is the point of
+            // filing: a worker should be able to see what was actually
+            // done about their complaint without asking anyone.
+            { key: "resolution_note", label: "Outcome",
+              render: (r) => r.resolution_note
+                ? <span>{r.resolution_note}</span>
+                : <span style={{ color: "var(--ink-faint)" }}>
+                    {r.status === "Escalated" ? "Escalated for review" : "Being looked at"}
+                  </span> },
           ]}
           rows={mine}
           severityOf={(r) => r.status}
