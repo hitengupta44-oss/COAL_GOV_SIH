@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import RoleGuard from "../../components/RoleGuard";
 import Layout from "../../components/Layout";
 import ChatPanel from "../../components/ChatPanel";
+import MineMap from "../../components/MineMap";
 import AlertsPanel from "../../components/AlertsPanel";
 import { Card, StatStrip, Table, Badge, Button, Notice } from "../../components/ui";
 import { useAuth } from "../../lib/useAuth";
@@ -209,6 +210,8 @@ function ManagerContent() {
           empty="No contractors assigned to this mine."
         />
       </Card>
+
+      <MineMap />
 
       <ChatPanel />
     </Layout>
