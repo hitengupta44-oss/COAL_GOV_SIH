@@ -1,52 +1,95 @@
 import { useEffect, useState } from "react";
 import RoleGuard from "../../components/RoleGuard";
+import Layout from "../../components/Layout";
 import ChatPanel from "../../components/ChatPanel";
+import { Card, StatStrip, Table, Notice } from "../../components/ui";
 import { useAuth } from "../../lib/useAuth";
-import { getDashboardSummary } from "../../lib/api";
+import { getDashboardSummary, getHighRiskMines } from "../../lib/api";
 import { supabase } from "../../lib/supabase";
 
-function RegulatorDashboardContent() {
-  const { profile, logout, getAccessToken } = useAuth();
+function RegulatorContent() {
+  const { getAccessToken } = useAuth();
   const [summary, setSummary] = useState(null);
+  const [risk, setRisk] = useState(null);
   const [auditLog, setAuditLog] = useState(null);
+  const [error, setError] = useState(null);
 
   useEffect(() => {
     (async () => {
-      const accessToken = await getAccessToken();
-      getDashboardSummary(accessToken, "All").then(setSummary).catch(console.error);
+      try {
+        const token = await getAccessToken();
+        const s = await getDashboardSummary(token, "All");
+        if (s?.error) setError(s.error); else setSummary(s);
+        const r = await getHighRiskMines(token, 10);
+        if (!r?.error) setRisk(Array.isArray(r) ? r : []);
+      } catch (e) {
+        setError(String(e.message || e));
+      }
     })();
-    supabase.from("audit_log").select("*").order("timestamp", { ascending: false }).limit(20)
-      .then(({ data }) => setAuditLog(data));
+    supabase
+      .from("audit_log")
+      .select("action, table_affected, details, timestamp")
+      .order("timestamp", { ascending: false })
+      .limit(20)
+      .then(({ data }) => setAuditLog(data || []));
   }, []);
 
+  const scoreTone = (s) => (s >= 0.9 ? "Critical" : s >= 0.7 ? "High" : s >= 0.4 ? "Medium" : "Low");
+
   return (
-    <div style={{ fontFamily: "sans-serif", padding: 32, maxWidth: 1000, margin: "0 auto" }}>
-      <div style={{ display: "flex", justifyContent: "space-between" }}>
-        <h1>⚖️ Regulator Oversight</h1>
-        <button onClick={logout}>Log Out</button>
-      </div>
-      <p>{profile.full_name || profile.email} — Read-only regulatory access</p>
+    <Layout title="Oversight" subtitle="Read-only access across all mines">
+      {error && <Notice tone="error">{error}</Notice>}
 
-      <section style={{ marginTop: 24 }}>
-        <h2>National Snapshot</h2>
-        <p>Total mines: {summary?.total_mines ?? "—"} · Fatal accidents: {summary?.fatal_accidents_recorded ?? "—"} · Overdue compliance: {summary?.overdue_compliance_items ?? "—"}</p>
-      </section>
+      <StatStrip
+        items={[
+          { label: "Mines on record", value: summary?.total_mines ?? "—" },
+          { label: "Fatal accidents recorded", value: summary?.fatal_accidents_recorded ?? "—", tone: "critical" },
+          { label: "Overdue compliance items", value: summary?.overdue_compliance_items ?? "—", tone: "high" },
+        ]}
+      />
 
-      <section style={{ marginTop: 32 }}>
-        <h2>Recent Audit Log</h2>
-        {auditLog?.length ? (
-          <ul>{auditLog.map((a) => <li key={a.log_id}>{a.timestamp} — {a.action} on {a.table_affected}</li>)}</ul>
-        ) : <p style={{ color: "#666" }}>No audit entries yet.</p>}
-      </section>
+      <Card title="Mines flagged for review">
+        <Table
+          columns={[
+            { key: "mine_name", label: "Mine", render: (r) => <strong>{r.mine_name || r.mine_id}</strong> },
+            { key: "state", label: "State", render: (r) => r.state || "—" },
+            { key: "flag_type", label: "Finding" },
+            { key: "risk_score", label: "Score", align: "right", width: 70 },
+          ]}
+          rows={risk || []}
+          severityOf={(r) => scoreTone(r.risk_score)}
+          empty="No mines flagged."
+        />
+      </Card>
+
+      <Card title="Compliance activity trail">
+        <Table
+          columns={[
+            { key: "timestamp", label: "When", width: 170, nowrap: true,
+              render: (r) => (r.timestamp ? new Date(r.timestamp).toLocaleString() : "—") },
+            { key: "action", label: "Action" },
+            { key: "table_affected", label: "Record" },
+            { key: "details", label: "Detail",
+              render: (r) => (
+                <span style={{ color: "var(--ink-soft)" }}>
+                  {r.details ? JSON.stringify(r.details) : "—"}
+                </span>
+              ) },
+          ]}
+          rows={auditLog || []}
+          empty="No changes recorded yet. Entries appear here when a mine official updates a compliance item."
+        />
+      </Card>
+
       <ChatPanel />
-    </div>
+    </Layout>
   );
 }
 
 export default function RegulatorDashboard() {
   return (
     <RoleGuard allowedRoles={["regulator"]}>
-      <RegulatorDashboardContent />
+      <RegulatorContent />
     </RoleGuard>
   );
 }
