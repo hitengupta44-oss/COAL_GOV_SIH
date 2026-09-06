@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import RoleGuard from "../../components/RoleGuard";
 import Layout from "../../components/Layout";
 import ChatPanel from "../../components/ChatPanel";
+import OcrCapture from "../../components/OcrCapture";
 import MineMap from "../../components/MineMap";
 import { Card, Table, Badge, Field, Button, Notice } from "../../components/ui";
 import { useAuth } from "../../lib/useAuth";
@@ -27,11 +28,20 @@ function InspectorContent() {
       .select("observation_type, severity, notes, timestamp, latitude, longitude")
       .eq("mine_id", profile.mine_id)
       .order("timestamp", { ascending: false })
-      .limit(10);
+      .limit(300);
     setRecent(data || []);
   };
 
   useEffect(() => { loadRecent(); }, [profile?.mine_id]);
+
+  // Only fields the reader was confident about are overwritten. A wrong
+  // guess silently replacing a choice the inspector already made would be
+  // worse than leaving it alone -- the text is a draft, not an authority.
+  const applyExtract = ({ notes, observationType, severity }) => {
+    if (notes) setNotes((prev) => (prev ? prev + "\n\n" + notes : notes));
+    if (observationType && OBSERVATIONS.includes(observationType)) setObsType(observationType);
+    if (severity) setSeverity(severity);
+  };
 
   // Location is captured rather than typed: the point of a geo-tagged
   // inspection is that the coordinates come from the device at the site,
@@ -75,6 +85,10 @@ function InspectorContent() {
 
   return (
     <Layout title="Inspections" subtitle="">
+      <Card title="From a paper sheet" style={{ maxWidth: 560 }}>
+        <OcrCapture onExtract={applyExtract} />
+      </Card>
+
       <Card title="Record an inspection" style={{ maxWidth: 560 }}>
         {status && <Notice tone={status.tone}>{status.text}</Notice>}
         <Field label="Observation">
@@ -109,6 +123,7 @@ function InspectorContent() {
             { key: "notes", label: "Notes", render: (r) => r.notes || "—" },
           ]}
           rows={recent}
+          countLabel="inspections"
           severityOf={(r) => r.severity}
           empty="No inspections recorded here yet. Your first one will appear in this list."
         />
