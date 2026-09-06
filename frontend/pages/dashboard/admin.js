@@ -1,178 +1,136 @@
 import { useEffect, useState } from "react";
 import RoleGuard from "../../components/RoleGuard";
+import Layout from "../../components/Layout";
 import ChatPanel from "../../components/ChatPanel";
+import { Card, Table, Button, Notice } from "../../components/ui";
 import { useAuth } from "../../lib/useAuth";
 import { listPendingSignups, approveUserRole } from "../../lib/api";
 import { supabase } from "../../lib/supabase";
 
-// NOTE: the old NEXT_PUBLIC_ADMIN_API_KEY shared secret has been removed.
-// Any NEXT_PUBLIC_ value is bundled into the browser JS and readable by
-// anyone via dev tools, so it was never a real access control. Admin
-// access is now enforced server-side: backend/app.py verifies the
-// caller's Supabase token and checks their user_profiles.role == 'admin',
-// and the RLS policies in supabase/schema.sql enforce the same rule at
-// the database layer. The backend still accepts an optional admin_key
-// argument (passed as "" here) for backward compatibility.
+const ROLES = ["worker", "inspector", "mine_official", "contractor_manager",
+  "corporate_admin", "regulator", "admin"];
+const MINE_SCOPED = new Set(["worker", "inspector", "mine_official"]);
+const defaultDraft = { role: "", mineId: "", subsidiaryId: "", fullName: "" };
 
-const ROLE_OPTIONS = [
-  "worker", "inspector", "mine_official", "contractor_manager",
-  "corporate_admin", "regulator", "admin",
-];
-
-// Roles that operate at one specific mine -- these show a mine picker.
-// Corporate/regulator/admin/contractor_manager aren't tied to a single mine.
-const MINE_SCOPED_ROLES = new Set(["worker", "inspector", "mine_official"]);
-
-function AdminDashboardContent() {
-  const { profile, logout, getAccessToken } = useAuth();
+function AdminContent() {
+  const { getAccessToken } = useAuth();
   const [pending, setPending] = useState(null);
   const [error, setError] = useState(null);
   const [mines, setMines] = useState([]);
-  const [subsidiaries, setSubsidiaries] = useState([]);
-  const [drafts, setDrafts] = useState({}); // auth_uid -> { role, mineId, subsidiaryId, fullName }
+  const [subs, setSubs] = useState([]);
+  const [drafts, setDrafts] = useState({});
   const [savingUid, setSavingUid] = useState(null);
 
-  const loadPending = async () => {
-    const accessToken = await getAccessToken();
-    listPendingSignups(accessToken, "")
-      .then((result) => {
-        if (result?.error) setError(result.error);
-        else { setPending(result); setError(null); }
-      })
-      .catch((err) => setError(String(err)));
+  const load = async () => {
+    try {
+      const token = await getAccessToken();
+      const res = await listPendingSignups(token, "");
+      if (res?.error) setError(res.error);
+      else { setPending(Array.isArray(res) ? res : []); setError(null); }
+    } catch (e) { setError(String(e.message || e)); }
   };
 
   useEffect(() => {
-    loadPending();
-    // Mines/subsidiaries pickers can be long lists -- keep this simple and
-    // let the admin type a mine_id/subsidiary_id directly if the list is
-    // too big to scan; the dropdowns are a convenience, not a requirement.
-    supabase.from("mines").select("mine_id, mine_name, state").order("mine_name").then(({ data }) => setMines(data || []));
-    supabase.from("subsidiaries").select("subsidiary_id, subsidiary_code").then(({ data }) => setSubsidiaries(data || []));
+    load();
+    supabase.from("mines").select("mine_id, mine_name, state").order("mine_name").limit(500)
+      .then(({ data }) => setMines(data || []));
+    supabase.from("subsidiaries").select("subsidiary_id, subsidiary_code")
+      .then(({ data }) => setSubs(data || []));
   }, []);
 
-  const updateDraft = (uid, patch) =>
-    setDrafts((prev) => ({ ...prev, [uid]: { ...defaultDraft, ...prev[uid], ...patch } }));
+  const patch = (uid, p) =>
+    setDrafts((prev) => ({ ...prev, [uid]: { ...defaultDraft, ...prev[uid], ...p } }));
 
-  const handleApprove = async (user) => {
-    const draft = drafts[user.auth_uid] || defaultDraft;
-    if (!draft.role) {
-      alert("Pick a role first.");
-      return;
-    }
+  const approve = async (user) => {
+    const d = drafts[user.auth_uid] || defaultDraft;
+    if (!d.role) return setError("Choose a role before approving this account.");
     setSavingUid(user.auth_uid);
+    setError(null);
     try {
-      const accessToken = await getAccessToken();
-      const result = await approveUserRole(accessToken, "", {
+      const token = await getAccessToken();
+      const res = await approveUserRole(token, "", {
         authUid: user.auth_uid,
         email: user.email,
-        fullName: draft.fullName || user.display_name || "",
-        role: draft.role,
-        mineId: MINE_SCOPED_ROLES.has(draft.role) ? draft.mineId : "",
-        subsidiaryId: draft.subsidiaryId,
+        fullName: d.fullName || user.display_name || "",
+        role: d.role,
+        mineId: MINE_SCOPED.has(d.role) ? d.mineId : "",
+        subsidiaryId: d.subsidiaryId,
       });
-      if (result?.error) {
-        alert(result.error);
-      } else {
-        loadPending(); // approved user drops off the pending list
-      }
-    } catch (err) {
-      alert(String(err));
-    } finally {
-      setSavingUid(null);
-    }
+      if (res?.error) setError(res.error); else load();
+    } catch (e) { setError(String(e.message || e)); }
+    finally { setSavingUid(null); }
   };
 
   return (
-    <div style={{ fontFamily: "sans-serif", padding: 32, maxWidth: 1000, margin: "0 auto" }}>
-      <div style={{ display: "flex", justifyContent: "space-between" }}>
-        <h1>🛠️ Admin Dashboard</h1>
-        <div>
-          <span style={{ marginRight: 16 }}>{profile?.full_name || profile?.email} — {profile?.role}</span>
-          <button onClick={logout}>Log Out</button>
-        </div>
-      </div>
+    <Layout title="User access" subtitle="Approve new accounts and assign roles">
+      {error && <Notice tone="error">{error}</Notice>}
 
-      <section style={{ marginTop: 24 }}>
-        <h2>Pending Signups</h2>
-        <p style={{ color: "#666", fontSize: 14 }}>
-          Accounts that have signed up but have no <code>user_profiles</code> row yet --
-          they're stuck on the "Account Pending Setup" screen until you assign them a role here.
+      <Card title="Waiting for a role">
+        <p style={{ color: "var(--ink-soft)", fontSize: 14, marginTop: -4 }}>
+          These people have signed up but can&apos;t reach a dashboard until you give
+          them a role. Mine-based roles also need a mine.
         </p>
-
-        {error && <p style={{ color: "#b00" }}>{error}</p>}
-
-        {pending?.length ? (
-          <table style={{ width: "100%", borderCollapse: "collapse" }}>
-            <thead>
-              <tr>
-                <th style={th}>Email</th><th style={th}>Name</th><th style={th}>Role</th>
-                <th style={th}>Mine (if role needs one)</th><th style={th}>Subsidiary (optional)</th><th style={th}></th>
-              </tr>
-            </thead>
-            <tbody>
-              {pending.map((user) => {
-                const draft = drafts[user.auth_uid] || defaultDraft;
+        <Table
+          columns={[
+            { key: "email", label: "Email" },
+            { key: "fullName", label: "Name", width: 150,
+              render: (u) => (
+                <input placeholder={u.display_name || "Full name"}
+                  value={(drafts[u.auth_uid] || defaultDraft).fullName}
+                  onChange={(e) => patch(u.auth_uid, { fullName: e.target.value })} />
+              ) },
+            { key: "role", label: "Role", width: 170,
+              render: (u) => (
+                <select value={(drafts[u.auth_uid] || defaultDraft).role}
+                  onChange={(e) => patch(u.auth_uid, { role: e.target.value })}>
+                  <option value="">Choose a role</option>
+                  {ROLES.map((r) => <option key={r} value={r}>{r.replace(/_/g, " ")}</option>)}
+                </select>
+              ) },
+            { key: "mine", label: "Mine", width: 200,
+              render: (u) => {
+                const d = drafts[u.auth_uid] || defaultDraft;
+                if (!MINE_SCOPED.has(d.role)) return <span style={{ color: "var(--ink-faint)" }}>Not needed</span>;
                 return (
-                  <tr key={user.auth_uid}>
-                    <td style={td}>{user.email}</td>
-                    <td style={td}>
-                      <input
-                        placeholder={user.display_name || "Full name"}
-                        value={draft.fullName}
-                        onChange={(e) => updateDraft(user.auth_uid, { fullName: e.target.value })}
-                        style={{ width: 120 }}
-                      />
-                    </td>
-                    <td style={td}>
-                      <select value={draft.role} onChange={(e) => updateDraft(user.auth_uid, { role: e.target.value })}>
-                        <option value="">-- pick --</option>
-                        {ROLE_OPTIONS.map((r) => <option key={r} value={r}>{r}</option>)}
-                      </select>
-                    </td>
-                    <td style={td}>
-                      {MINE_SCOPED_ROLES.has(draft.role) && (
-                        <select value={draft.mineId} onChange={(e) => updateDraft(user.auth_uid, { mineId: e.target.value })}>
-                          <option value="">-- pick a mine --</option>
-                          {mines.map((m) => (
-                            <option key={m.mine_id} value={m.mine_id}>{m.mine_name} ({m.state})</option>
-                          ))}
-                        </select>
-                      )}
-                    </td>
-                    <td style={td}>
-                      <select value={draft.subsidiaryId} onChange={(e) => updateDraft(user.auth_uid, { subsidiaryId: e.target.value })}>
-                        <option value="">-- none --</option>
-                        {subsidiaries.map((s) => (
-                          <option key={s.subsidiary_id} value={s.subsidiary_id}>{s.subsidiary_code}</option>
-                        ))}
-                      </select>
-                    </td>
-                    <td style={td}>
-                      <button disabled={savingUid === user.auth_uid} onClick={() => handleApprove(user)}>
-                        {savingUid === user.auth_uid ? "Saving..." : "Approve"}
-                      </button>
-                    </td>
-                  </tr>
+                  <select value={d.mineId} onChange={(e) => patch(u.auth_uid, { mineId: e.target.value })}>
+                    <option value="">Choose a mine</option>
+                    {mines.map((m) => (
+                      <option key={m.mine_id} value={m.mine_id}>{m.mine_name} ({m.state})</option>
+                    ))}
+                  </select>
                 );
-              })}
-            </tbody>
-          </table>
-        ) : !error && <p style={{ color: "#666" }}>No pending signups right now.</p>}
-      </section>
+              } },
+            { key: "sub", label: "Subsidiary", width: 150,
+              render: (u) => (
+                <select value={(drafts[u.auth_uid] || defaultDraft).subsidiaryId}
+                  onChange={(e) => patch(u.auth_uid, { subsidiaryId: e.target.value })}>
+                  <option value="">None</option>
+                  {subs.map((s) => (
+                    <option key={s.subsidiary_id} value={s.subsidiary_id}>{s.subsidiary_code}</option>
+                  ))}
+                </select>
+              ) },
+            { key: "act", label: "", width: 110,
+              render: (u) => (
+                <Button disabled={savingUid === u.auth_uid} onClick={() => approve(u)}>
+                  {savingUid === u.auth_uid ? "Saving" : "Approve"}
+                </Button>
+              ) },
+          ]}
+          rows={pending || []}
+          empty="Everyone who has signed up already has a role."
+        />
+      </Card>
+
       <ChatPanel />
-    </div>
+    </Layout>
   );
 }
-
-const defaultDraft = { role: "", mineId: "", subsidiaryId: "", fullName: "" };
-const th = { textAlign: "left", borderBottom: "2px solid #ddd", padding: 8 };
-const td = { borderBottom: "1px solid #eee", padding: 8 };
 
 export default function AdminDashboard() {
   return (
     <RoleGuard allowedRoles={["admin"]}>
-      <AdminDashboardContent />
+      <AdminContent />
     </RoleGuard>
   );
 }
