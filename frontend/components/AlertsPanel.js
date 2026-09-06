@@ -12,7 +12,7 @@ import { supabase } from "../lib/supabase";
 // matters under whatever happened to be scanned last.
 const SEV_ORDER = { Critical: 0, High: 1, Medium: 2, Low: 3 };
 
-export default function AlertsPanel({ limit = 12 }) {
+export default function AlertsPanel({ limit = 60 }) {
   const { profile } = useAuth();
   const [alerts, setAlerts] = useState(null);
   const [error, setError] = useState(null);
@@ -99,6 +99,8 @@ export default function AlertsPanel({ limit = 12 }) {
               ) },
         ]}
         rows={(alerts || []).slice(0, limit)}
+        total={(alerts || []).length}
+        countLabel="alerts"
         severityOf={(a) => a.severity}
         empty="Nothing needs your attention. Alerts appear here when a deadline is approaching or has passed."
       />
