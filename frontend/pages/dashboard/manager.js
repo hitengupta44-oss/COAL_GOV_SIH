@@ -40,7 +40,7 @@ function ManagerContent() {
       .select("*")
       .eq("mine_id", profile.mine_id)
       .order("date_filed", { ascending: false })
-      .limit(25);
+      .limit(500);
     setGrievances(data || []);
   };
 
@@ -82,7 +82,7 @@ function ManagerContent() {
     if (!profile?.mine_id) return;
     loadCompliance();
     loadGrievances();
-    supabase.from("contractors").select("*").eq("mine_id", profile.mine_id)
+    supabase.from("contractors").select("*").eq("mine_id", profile.mine_id).limit(500)
       .then(({ data }) => setContractors(data || []));
   }, [profile?.mine_id]);
 
@@ -142,6 +142,7 @@ function ManagerContent() {
               ) },
           ]}
           rows={compliance || []}
+          countLabel="obligations"
           severityOf={(r) => r.status}
           empty="No compliance items recorded for this mine."
         />
@@ -193,6 +194,7 @@ function ManagerContent() {
                 ) },
           ]}
           rows={grievances || []}
+          countLabel="grievances"
           severityOf={(r) => r.is_overdue ? "Critical" : r.status}
           empty="No grievances filed at this mine."
         />
@@ -207,6 +209,7 @@ function ManagerContent() {
             { key: "status", label: "Status", width: 120, render: (r) => <Badge>{r.status}</Badge> },
           ]}
           rows={contractors || []}
+          countLabel="contractors"
           severityOf={(r) => r.status}
           empty="No contractors assigned to this mine."
         />
