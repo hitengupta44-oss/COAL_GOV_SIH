@@ -13,14 +13,19 @@ export default function RoleGuard({ allowedRoles, children }) {
   const router = useRouter();
 
   useEffect(() => {
+    // `replace` rather than `push`: after signing out, the dashboard should
+    // not sit in history for the back button to return to.
     if (loading) return;
-    if (!user) return router.push("/login");
-    if (!profile) return router.push("/pending-approval");
-    if (!allowedRoles.includes(profile.role)) return router.push("/dashboard");
+    if (!user) return void router.replace("/login");
+    if (!profile) return void router.replace("/pending-approval");
+    if (!allowedRoles.includes(profile.role)) return void router.replace("/dashboard");
   }, [user, profile, loading, router, allowedRoles]);
 
+  // Children are not rendered until user AND profile are both present, so
+  // a page can never read profile.something during the gap between signing
+  // out and the redirect landing.
   if (loading || !user || !profile || !allowedRoles.includes(profile.role)) {
-    return <p style={{ padding: 40, fontFamily: "sans-serif" }}>Loading...</p>;
+    return <p style={{ padding: 40, color: "var(--ink-soft)" }}>Loading</p>;
   }
 
   return children;
