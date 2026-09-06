@@ -9,7 +9,7 @@ function ContractorManagerDashboardContent() {
 
   useEffect(() => {
     let query = supabase.from("contractors").select("*").order("contract_end", { ascending: true });
-    if (profile.subsidiary_id) query = query.eq("subsidiary_id", profile.subsidiary_id);
+    if (profile?.subsidiary_id) query = query.eq("subsidiary_id", profile.subsidiary_id);
     query.then(({ data }) => setContractors(data));
   }, [profile]);
 
