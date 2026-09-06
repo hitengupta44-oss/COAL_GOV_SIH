@@ -54,6 +54,99 @@ const SUGGESTIONS = {
   ],
 };
 
+
+// Minimal markdown rendering.
+//
+// The model's replies come back as markdown, and printing them raw meant
+// users saw literal "**bold**" asterisks and pipe-delimited table rows --
+// which looked broken. Rather than add a markdown library for the handful
+// of constructs that actually show up here, this handles the common cases:
+// bold, inline code, bullet lists, numbered lists and paragraph breaks.
+// The backend system prompt also asks for plain prose over heavy nested
+// formatting, so this only needs to cover the basics.
+function renderInline(text, keyPrefix) {
+  const nodes = [];
+  const pattern = /(\*\*[^*]+\*\*|`[^`]+`)/g;
+  let last = 0;
+  let m;
+  let i = 0;
+  while ((m = pattern.exec(text)) !== null) {
+    if (m.index > last) nodes.push(text.slice(last, m.index));
+    const tok = m[0];
+    if (tok.startsWith("**")) {
+      nodes.push(<strong key={`${keyPrefix}-b${i++}`}>{tok.slice(2, -2)}</strong>);
+    } else {
+      nodes.push(
+        <code key={`${keyPrefix}-c${i++}`} style={{ background: "#eee", padding: "1px 4px", borderRadius: 3 }}>
+          {tok.slice(1, -1)}
+        </code>
+      );
+    }
+    last = m.index + tok.length;
+  }
+  if (last < text.length) nodes.push(text.slice(last));
+  return nodes;
+}
+
+function Markdown({ text }) {
+  if (!text) return null;
+  const lines = String(text).split("\n");
+  const blocks = [];
+  let list = null;
+
+  const flush = () => {
+    if (list) {
+      blocks.push(
+        <ul key={`ul-${blocks.length}`} style={{ margin: "6px 0", paddingLeft: 20 }}>
+          {list.map((li, i) => <li key={i} style={{ marginBottom: 3 }}>{renderInline(li, `li${i}`)}</li>)}
+        </ul>
+      );
+      list = null;
+    }
+  };
+
+  lines.forEach((raw, i) => {
+    const line = raw.trim();
+    // Skip markdown table rows and separators: the panel is narrow and the
+    // prompt discourages tables, but the model occasionally emits one and a
+    // raw pipe row is worse than dropping it.
+    if (/^\|?\s*[-:|\s]+\|/.test(line) && line.includes("|")) return;
+    if (line.startsWith("|") && line.endsWith("|")) {
+      flush();
+      const cells = line.split("|").filter((c) => c.trim());
+      blocks.push(
+        <div key={`t-${i}`} style={{ marginBottom: 4 }}>
+          {renderInline(cells.join(" — "), `t${i}`)}
+        </div>
+      );
+      return;
+    }
+    if (!line) { flush(); return; }
+    const bullet = line.match(/^[-*]\s+(.*)$/);
+    const numbered = line.match(/^\d+[.)]\s+(.*)$/);
+    if (bullet || numbered) {
+      if (!list) list = [];
+      list.push((bullet || numbered)[1]);
+      return;
+    }
+    flush();
+    const heading = line.match(/^#{1,6}\s+(.*)$/);
+    if (heading) {
+      blocks.push(
+        <div key={`h-${i}`} style={{ fontWeight: 700, marginTop: 8, marginBottom: 2 }}>
+          {renderInline(heading[1], `h${i}`)}
+        </div>
+      );
+      return;
+    }
+    blocks.push(
+      <p key={`p-${i}`} style={{ margin: "0 0 8px" }}>{renderInline(line, `p${i}`)}</p>
+    );
+  });
+  flush();
+  return <div>{blocks}</div>;
+}
+
 export default function ChatPanel({ title = "Ask the Governance Assistant" }) {
   const { profile, getAccessToken } = useAuth();
   const [open, setOpen] = useState(false);
@@ -137,8 +230,10 @@ export default function ChatPanel({ title = "Ask the Governance Assistant" }) {
               <div style={{ fontWeight: 700 }}>You</div>
               <div style={{ marginBottom: 6 }}>{m.user}</div>
               <div style={{ fontWeight: 700 }}>Assistant</div>
-              <div style={{ whiteSpace: "pre-wrap" }}>
-                {m.bot === null ? <em style={{ color: "#888" }}>Thinking...</em> : m.bot}
+              <div>
+                {m.bot === null
+                  ? <em style={{ color: "#888" }}>Thinking...</em>
+                  : <Markdown text={m.bot} />}
               </div>
             </div>
           ))}
