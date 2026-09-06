@@ -21,6 +21,9 @@ function ManagerContent() {
   const [error, setError] = useState(null);
   const [resolving, setResolving] = useState(null);   // grievance being closed
   const [note, setNote] = useState("");
+  const [flags, setFlags] = useState(null);
+  const [flagDraft, setFlagDraft] = useState(null);   // flag being answered
+  const [flagNote, setFlagNote] = useState("");
 
   const loadCompliance = async () => {
     if (!profile?.mine_id) return;
@@ -78,9 +81,51 @@ function ManagerContent() {
     else loadGrievances();
   };
 
+  // Risk flags raised against this mine by the analytics job. Read from
+  // the view so the responder's name comes back with them.
+  const loadFlags = async () => {
+    if (!profile?.mine_id) return;
+    const { data } = await supabase
+      .from("risk_flag_view")
+      .select("flag_id, flag_type, risk_score, explanation, response_status, "
+            + "response_note, responded_at, responded_by_name")
+      .eq("mine_id", profile.mine_id)
+      .order("risk_score", { ascending: false })
+      .limit(100);
+    setFlags(data || []);
+  };
+
+  // Answering a flag does not delete it. The finding and the response sit
+  // side by side, so a regulator can see both what was raised and what
+  // the mine said about it -- which is the whole point of having the
+  // record. "Disputed" is a legitimate answer, not a way to hide one.
+  const respondToFlag = async (status) => {
+    if (!flagDraft) return;
+    if (status === "Disputed" && !flagNote.trim()) {
+      return setError("Say why you disagree with this finding before disputing it.");
+    }
+    setSavingId(flagDraft.flag_id);
+    setError(null);
+    const { data, error: err } = await supabase
+      .from("ai_risk_flags")
+      .update({
+        response_status: status,
+        response_note: flagNote || null,
+        responded_by: profile.profile_id,
+        responded_at: new Date().toISOString(),
+      })
+      .eq("flag_id", flagDraft.flag_id)
+      .select();
+    setSavingId(null);
+    if (err) return setError(`Could not record your response: ${err.message}`);
+    if (!data?.length) return setError("Not saved. You can only respond to findings at your own mine.");
+    setFlagDraft(null); setFlagNote(""); loadFlags();
+  };
+
   useEffect(() => {
     if (!profile?.mine_id) return;
     loadCompliance();
+    loadFlags();
     loadGrievances();
     supabase.from("contractors").select("*").eq("mine_id", profile.mine_id).limit(500)
       .then(({ data }) => setContractors(data || []));
@@ -103,6 +148,23 @@ function ManagerContent() {
 
   const overdue = (compliance || []).filter((c) => c.status === "Overdue").length;
   const pending = (compliance || []).filter((c) => c.status === "Pending").length;
+  // Mine officials can now flag a contractor at their own site. They are
+  // accountable for who is underground there, so being able to see a
+  // lapsed safety certificate without acting on it was the wrong split.
+  const toggleBlacklist = async (c) => {
+    setSavingId(c.contractor_id);
+    setError(null);
+    const { data, error: err } = await supabase
+      .from("contractors").update({ blacklisted: !c.blacklisted })
+      .eq("contractor_id", c.contractor_id).select();
+    setSavingId(null);
+    if (err) return setError(`Could not update this contractor: ${err.message}`);
+    if (!data?.length) return setError("Not saved. You can only change contractors at your own mine.");
+    const { data: fresh } = await supabase
+      .from("contractors").select("*").eq("mine_id", profile.mine_id).limit(500);
+    setContractors(fresh || []);
+  };
+
   const openGrievances = (grievances || []).filter((g) => g.status !== "Resolved").length;
   const overdueGrievances = (grievances || []).filter((g) => g.is_overdue).length;
 
@@ -120,6 +182,58 @@ function ManagerContent() {
       />
 
       <AlertsPanel />
+
+      <Card title="Findings against this mine">
+        <p style={{ color: "var(--ink-soft)", fontSize: 14, marginTop: -4 }}>
+          Raised automatically from accident, inspection and environmental data.
+          Record what was done, or say why you disagree — both stay on the record.
+        </p>
+
+        {flagDraft && (
+          <div style={{ background: "var(--primary-wash)", borderLeft: "3px solid var(--primary)",
+                        padding: 14, marginBottom: 14, borderRadius: 3 }}>
+            <div style={{ fontSize: 13, color: "var(--ink-soft)", marginBottom: 6 }}>
+              {flagDraft.flag_type} — {flagDraft.explanation}
+            </div>
+            <textarea rows={3} value={flagNote} onChange={(e) => setFlagNote(e.target.value)}
+              placeholder="What was done about this, or why is it wrong?" style={{ marginBottom: 8 }} />
+            <Button onClick={() => respondToFlag("Addressed")}
+              disabled={savingId === flagDraft.flag_id}>Mark addressed</Button>
+            <Button variant="secondary" onClick={() => respondToFlag("Acknowledged")}
+              disabled={savingId === flagDraft.flag_id} style={{ marginLeft: 8 }}>Acknowledge</Button>
+            <Button variant="secondary" onClick={() => respondToFlag("Disputed")}
+              disabled={savingId === flagDraft.flag_id} style={{ marginLeft: 8 }}>Dispute</Button>
+            <Button variant="quiet" onClick={() => { setFlagDraft(null); setFlagNote(""); }}
+              style={{ marginLeft: 12 }}>Cancel</Button>
+          </div>
+        )}
+
+        <Table
+          columns={[
+            { key: "flag_type", label: "Finding", width: 200,
+              render: (f) => <strong>{f.flag_type}</strong> },
+            { key: "explanation", label: "Basis",
+              render: (f) => <span style={{ color: "var(--ink-soft)" }}>{f.explanation}</span> },
+            { key: "risk_score", label: "Score", width: 70, align: "right" },
+            { key: "response_status", label: "Response", width: 130,
+              render: (f) => <Badge>{f.response_status === "Addressed" ? "Low"
+                : f.response_status === "Disputed" ? "Medium"
+                : f.response_status === "Acknowledged" ? "Medium" : "High"}</Badge> },
+            { key: "act", label: "", width: 130,
+              render: (f) => f.response_status && f.response_status !== "Open"
+                ? <span style={{ color: "var(--ink-faint)", fontSize: 13 }}>
+                    {f.response_status}{f.responded_by_name ? ` by ${f.responded_by_name}` : ""}
+                  </span>
+                : <Button variant="secondary"
+                    onClick={() => { setFlagDraft(f); setFlagNote(""); }}>Respond</Button> },
+          ]}
+          rows={flags || []}
+          countLabel="findings"
+          severityOf={(f) => f.response_status === "Addressed" ? "Low"
+            : f.risk_score >= 0.9 ? "Critical" : f.risk_score >= 0.7 ? "High" : "Medium"}
+          empty="No findings raised against this mine."
+        />
+      </Card>
 
       <Card title="Statutory compliance">
         <Table
@@ -207,6 +321,13 @@ function ManagerContent() {
             { key: "contract_type", label: "Scope" },
             { key: "contract_end", label: "Contract ends", width: 130, nowrap: true },
             { key: "status", label: "Status", width: 120, render: (r) => <Badge>{r.status}</Badge> },
+            { key: "flag", label: "", width: 130,
+              render: (c) => (
+                <Button variant="secondary" disabled={savingId === c.contractor_id}
+                  onClick={() => toggleBlacklist(c)}>
+                  {c.blacklisted ? "Remove flag" : "Blacklist"}
+                </Button>
+              ) },
           ]}
           rows={contractors || []}
           countLabel="contractors"
