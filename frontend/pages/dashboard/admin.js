@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import RoleGuard from "../../components/RoleGuard";
+import ChatPanel from "../../components/ChatPanel";
 import { useAuth } from "../../lib/useAuth";
 import { listPendingSignups, approveUserRole } from "../../lib/api";
 import { supabase } from "../../lib/supabase";
@@ -159,6 +160,7 @@ function AdminDashboardContent() {
           </table>
         ) : !error && <p style={{ color: "#666" }}>No pending signups right now.</p>}
       </section>
+      <ChatPanel />
     </div>
   );
 }
