@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import RoleGuard from "../../components/RoleGuard";
 import Layout from "../../components/Layout";
 import ChatPanel from "../../components/ChatPanel";
-import { Card, Table, Button, Notice } from "../../components/ui";
+import { Card, StatStrip, Table, Button, Notice } from "../../components/ui";
 import { useAuth } from "../../lib/useAuth";
 import { listPendingSignups, approveUserRole } from "../../lib/api";
 import { supabase } from "../../lib/supabase";
@@ -20,6 +20,7 @@ function AdminContent() {
   const [subs, setSubs] = useState([]);
   const [drafts, setDrafts] = useState({});
   const [savingUid, setSavingUid] = useState(null);
+  const [people, setPeople] = useState(null);
 
   const load = async () => {
     try {
@@ -30,13 +31,29 @@ function AdminContent() {
     } catch (e) { setError(String(e.message || e)); }
   };
 
+  // Everyone who already has access. RLS lets an admin read every profile
+  // row (see the "Read own profile" policy in schema.sql), so this is a
+  // direct Supabase read rather than another backend round trip.
+  const loadPeople = async () => {
+    const { data } = await supabase
+      .from("user_profiles")
+      .select("profile_id, full_name, email, role, mine_id, created_at")
+      .order("role");
+    setPeople(data || []);
+  };
+
   useEffect(() => {
     load();
+    loadPeople();
     supabase.from("mines").select("mine_id, mine_name, state").order("mine_name").limit(500)
       .then(({ data }) => setMines(data || []));
     supabase.from("subsidiaries").select("subsidiary_id, subsidiary_code")
       .then(({ data }) => setSubs(data || []));
   }, []);
+
+  // Mine ids mean nothing to a person reading the table, so map them to
+  // names once rather than per row.
+  const mineNames = Object.fromEntries(mines.map((m) => [m.mine_id, m.mine_name]));
 
   const patch = (uid, p) =>
     setDrafts((prev) => ({ ...prev, [uid]: { ...defaultDraft, ...prev[uid], ...p } }));
@@ -56,7 +73,8 @@ function AdminContent() {
         mineId: MINE_SCOPED.has(d.role) ? d.mineId : "",
         subsidiaryId: d.subsidiaryId,
       });
-      if (res?.error) setError(res.error); else load();
+      if (res?.error) setError(res.error);
+      else { load(); loadPeople(); }
     } catch (e) { setError(String(e.message || e)); }
     finally { setSavingUid(null); }
   };
@@ -64,6 +82,23 @@ function AdminContent() {
   return (
     <Layout title="User access" subtitle="Approve new accounts and assign roles">
       {error && <Notice tone="error">{error}</Notice>}
+
+      <StatStrip
+        items={[
+          { label: "People with access", value: people ? people.length : "—" },
+          {
+            label: "Waiting for a role",
+            value: pending ? pending.length : "—",
+            tone: pending && pending.length ? "medium" : null,
+            note: pending && pending.length ? "Needs your attention" : undefined,
+          },
+          {
+            label: "Mine-based accounts",
+            value: people ? people.filter((p) => MINE_SCOPED.has(p.role)).length : "—",
+            note: "Limited to one site",
+          },
+        ]}
+      />
 
       <Card title="Waiting for a role">
         <p style={{ color: "var(--ink-soft)", fontSize: 14, marginTop: -4 }}>
@@ -119,6 +154,31 @@ function AdminContent() {
           ]}
           rows={pending || []}
           empty="Everyone who has signed up already has a role."
+        />
+      </Card>
+
+      <Card title="People with access">
+        <p style={{ color: "var(--ink-soft)", fontSize: 14, marginTop: -4 }}>
+          Everyone who can sign in, and what each of them can see. Mine-based
+          roles are limited to the site named here; the rest see across all mines.
+        </p>
+        <Table
+          columns={[
+            { key: "full_name", label: "Name",
+              render: (u) => <strong>{u.full_name || "—"}</strong> },
+            { key: "email", label: "Email" },
+            { key: "role", label: "Role", width: 170,
+              render: (u) => (u.role || "").replace(/_/g, " ") },
+            { key: "scope", label: "Sees", width: 210,
+              render: (u) =>
+                MINE_SCOPED.has(u.role)
+                  ? (mineNames[u.mine_id] || "One mine")
+                  : <span style={{ color: "var(--ink-soft)" }}>All mines</span> },
+            { key: "created_at", label: "Added", width: 110, nowrap: true,
+              render: (u) => (u.created_at ? String(u.created_at).slice(0, 10) : "—") },
+          ]}
+          rows={people || []}
+          empty="No accounts yet."
         />
       </Card>
 
