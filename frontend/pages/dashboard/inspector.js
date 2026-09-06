@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import RoleGuard from "../../components/RoleGuard";
+import ChatPanel from "../../components/ChatPanel";
 import { useAuth } from "../../lib/useAuth";
 import { logFieldInspection } from "../../lib/api";
 import { supabase } from "../../lib/supabase";
@@ -165,6 +166,7 @@ function InspectorDashboardContent() {
           </table>
         )}
       </section>
+      <ChatPanel />
     </div>
   );
 }
