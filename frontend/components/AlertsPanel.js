@@ -15,13 +15,20 @@ const SEV_ORDER = { Critical: 0, High: 1, Medium: 2, Low: 3 };
 export default function AlertsPanel({ limit = 60 }) {
   const { profile } = useAuth();
   const [alerts, setAlerts] = useState(null);
+  const [mines, setMines] = useState({});
   const [error, setError] = useState(null);
   const [busy, setBusy] = useState(null);
+
+  // Roles that see across mines need to know WHICH mine each alert is
+  // about. Without it "Compliance overdue by 359 days" is unactionable for
+  // a regulator looking at 459 sites -- the information was in the table
+  // all along as mine_id, it just was not resolved to a name.
+  const wide = ["corporate_admin", "regulator", "admin"].includes(profile?.role);
 
   const load = async () => {
     const { data, error: err } = await supabase
       .from("alerts")
-      .select("alert_id, category, severity, title, body, due_date, status, escalation_level, created_at")
+      .select("alert_id, mine_id, category, severity, title, body, due_date, status, escalation_level, created_at")
       .in("status", ["Open", "Acknowledged"])
       .limit(200);
     if (err) return setError(err.message);
@@ -31,6 +38,15 @@ export default function AlertsPanel({ limit = 60 }) {
         String(a.due_date || "9999").localeCompare(String(b.due_date || "9999"))
     );
     setAlerts(sorted);
+
+    // One batched lookup keyed by the ids actually returned, rather than a
+    // query per row.
+    const ids = [...new Set((data || []).map((a) => a.mine_id).filter(Boolean))];
+    if (ids.length) {
+      const { data: m } = await supabase
+        .from("mines").select("mine_id, mine_name, state").in("mine_id", ids);
+      setMines(Object.fromEntries((m || []).map((x) => [x.mine_id, x])));
+    }
   };
 
   useEffect(() => { load(); }, [profile?.profile_id]);
@@ -71,6 +87,19 @@ export default function AlertsPanel({ limit = 60 }) {
       {error && <Notice tone="error">{error}</Notice>}
       <Table
         columns={[
+          // Only shown to roles that span mines; for a mine official every
+          // row would say the same thing, which is just noise.
+          ...(wide
+            ? [{ key: "mine", label: "Mine", width: 170, nowrap: false,
+                 render: (a) => (
+                   <>
+                     <strong>{mines[a.mine_id]?.mine_name || "—"}</strong>
+                     <div style={{ color: "var(--ink-faint)", fontSize: 12.5 }}>
+                       {mines[a.mine_id]?.state || ""}
+                     </div>
+                   </>
+                 ) }]
+            : []),
           { key: "title", label: "What", render: (a) => (
               <>
                 <strong>{a.title}</strong>
@@ -79,7 +108,13 @@ export default function AlertsPanel({ limit = 60 }) {
                     escalated
                   </span>
                 )}
-                <div style={{ color: "var(--ink-soft)", fontSize: 13.5 }}>{a.body}</div>
+                {/* The full statutory text made a single row taller than the
+                    panel. Clamped to three lines so the list stays scannable;
+                    the whole text is in the downloadable report. */}
+                <div style={{
+                  color: "var(--ink-soft)", fontSize: 13.5, display: "-webkit-box",
+                  WebkitLineClamp: 3, WebkitBoxOrient: "vertical", overflow: "hidden",
+                }}>{a.body}</div>
               </>
             ) },
           { key: "category", label: "Area", width: 110 },
