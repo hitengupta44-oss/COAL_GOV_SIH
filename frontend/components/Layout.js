@@ -3,6 +3,7 @@ import { useRouter } from "next/router";
 import { useEffect, useState } from "react";
 import { useAuth } from "../lib/useAuth";
 import { supabase } from "../lib/supabase";
+import OfflineBar from "./OfflineBar";
 
 // Nav is built per role rather than shown-and-disabled, because a
 // regulator has no use for knowing a contractor screen exists. Every
@@ -126,6 +127,7 @@ export default function Layout({ title, subtitle, children }) {
               {mine && (subtitle ? " · " : "") + `${mine.mine_name}, ${mine.state}`}
             </p>
           </header>
+          <OfflineBar />
           {children}
         </div>
       </main>
