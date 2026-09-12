@@ -8,6 +8,7 @@ import { Card, Table, Badge, Field, Button, Notice } from "../../components/ui";
 import { useAuth } from "../../lib/useAuth";
 import { logFieldInspection } from "../../lib/api";
 import { supabase } from "../../lib/supabase";
+import { enqueue } from "../../lib/offlineQueue";
 
 const OBSERVATIONS = ["Safety Equipment Check", "Ventilation Inspection", "Slope Stability",
   "Electrical Safety", "Housekeeping", "Water Accumulation", "PPE Compliance"];
@@ -56,15 +57,33 @@ function InspectorContent() {
 
     navigator.geolocation.getCurrentPosition(
       async (pos) => {
+        const record = {
+          mineId: profile.mine_id,
+          latitude: pos.coords.latitude,
+          longitude: pos.coords.longitude,
+          observationType: obsType,
+          severity,
+          notes,
+        };
+
+        // With no signal the record is stored on the device rather than
+        // lost. The coordinates were captured at the face, so the
+        // geo-tag stays truthful even though it is sent hours later.
+        if (typeof navigator !== "undefined" && !navigator.onLine) {
+          try {
+            await enqueue("inspection", record);
+            setStatus({ tone: "info", text:
+              `Saved on this device at ${pos.coords.latitude.toFixed(5)}, ${pos.coords.longitude.toFixed(5)}. `
+              + "It will be sent when you have a signal." });
+            setNotes("");
+          } catch (e) {
+            setStatus({ tone: "error", text: `Could not save offline: ${e.message || e}` });
+          } finally { setSubmitting(false); }
+          return;
+        }
+
         try {
-          const res = await logFieldInspection(token, {
-            mineId: profile.mine_id,
-            latitude: pos.coords.latitude,
-            longitude: pos.coords.longitude,
-            observationType: obsType,
-            severity,
-            notes,
-          });
+          const res = await logFieldInspection(token, record);
           if (res?.error) setStatus({ tone: "error", text: res.error });
           else {
             setStatus({ tone: "success", text: `Recorded at ${pos.coords.latitude.toFixed(5)}, ${pos.coords.longitude.toFixed(5)}.` });
@@ -72,7 +91,16 @@ function InspectorContent() {
             loadRecent();
           }
         } catch (e) {
-          setStatus({ tone: "error", text: String(e.message || e) });
+          // Being "online" is not the same as reaching the server. A
+          // failed request queues rather than discarding the finding.
+          try {
+            await enqueue("inspection", record);
+            setStatus({ tone: "info", text:
+              "Could not reach the server, so this is saved on your device and will be sent later." });
+            setNotes("");
+          } catch {
+            setStatus({ tone: "error", text: String(e.message || e) });
+          }
         } finally { setSubmitting(false); }
       },
       () => {
