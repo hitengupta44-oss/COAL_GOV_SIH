@@ -1,4 +1,5 @@
-import React from "react";
+import React, { useEffect } from "react";
+import Head from "next/head";
 import { AuthProvider } from "../lib/useAuth";
 import "../styles/globals.css";
 
@@ -77,8 +78,28 @@ class ErrorBoundary extends React.Component {
 }
 
 export default function App({ Component, pageProps }) {
+  // Registered after load so it never competes with the first paint.
+  // Failure is non-fatal: without a service worker the app simply behaves
+  // as an ordinary website, which is the correct degradation.
+  useEffect(() => {
+    if (typeof window === "undefined" || !("serviceWorker" in navigator)) return;
+    const register = () => navigator.serviceWorker.register("/sw.js").catch(() => {});
+    if (document.readyState === "complete") register();
+    else window.addEventListener("load", register);
+  }, []);
+
   return (
     <ErrorBoundary>
+      <Head>
+        <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+        <meta name="theme-color" content="#16212B" />
+        <link rel="manifest" href="/manifest.json" />
+        <link rel="apple-touch-icon" href="/icon-192.png" />
+        <meta name="apple-mobile-web-app-capable" content="yes" />
+        <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+        <meta name="apple-mobile-web-app-title" content="Mine Governance" />
+        <title>Coal Mine Governance</title>
+      </Head>
       <AuthProvider>
         <Component {...pageProps} />
       </AuthProvider>
