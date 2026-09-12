@@ -6,6 +6,7 @@ import MineMap from "../../components/MineMap";
 import { Card, Table, Badge, Field, Button, Notice } from "../../components/ui";
 import { useAuth } from "../../lib/useAuth";
 import { supabase } from "../../lib/supabase";
+import { enqueue } from "../../lib/offlineQueue";
 
 const CATEGORIES = ["Wages/Payment Delay", "Safety Equipment Shortage", "Housing/Welfare",
   "Working Hours", "Harassment/Conduct", "Medical Facility", "Transport"];
@@ -37,7 +38,7 @@ function WorkerContent() {
     if (!profile?.mine_id) return setStatus({ tone: "error", text: "No mine assigned to your account. Ask an administrator to set one." });
 
     setSaving(true);
-    const { data, error } = await supabase.from("grievances").insert({
+    const row = {
       mine_id: profile.mine_id,
       subsidiary_id: profile.subsidiary_id ?? null,
       filed_by: profile.profile_id,
@@ -46,7 +47,23 @@ function WorkerContent() {
       description,
       status: "In Progress",
       is_synthetic: false,
-    }).select();
+    };
+
+    if (typeof navigator !== "undefined" && !navigator.onLine) {
+      try {
+        await enqueue("grievance", row);
+        setSaving(false);
+        setStatus({ tone: "info", text:
+          "Saved on this device. It will be filed when you have a signal." });
+        setDescription("");
+      } catch (e) {
+        setSaving(false);
+        setStatus({ tone: "error", text: `Could not save offline: ${e.message || e}` });
+      }
+      return;
+    }
+
+    const { data, error } = await supabase.from("grievances").insert(row).select();
     setSaving(false);
 
     if (error) return setStatus({ tone: "error", text: `Could not file this grievance: ${error.message}` });
