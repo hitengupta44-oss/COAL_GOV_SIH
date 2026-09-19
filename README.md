@@ -1,98 +1,263 @@
-# Coal Mining Smart Governance Platform
-SIH 2026 — Problem Statement 26024
+<div align="center">
 
-## Stack
-- **Auth:** Supabase Authentication
-- **Database:** Supabase (Postgres + PostGIS)
-- **Backend:** Gradio app on Hugging Face Spaces (doubles as REST API)
-- **Frontend:** Next.js on Vercel
-- **AI/LLM:** Groq API (base model now, fine-tune on your DGMS + compliance data later)
+# ⛏️ Coal Mining Smart Governance Platform
 
-## Folder structure
+**Statutory compliance, safety findings and field inspections for Indian coal mining — in one record, visible to everyone accountable for it.**
+
+[![Next.js](https://img.shields.io/badge/Next.js-14-000000?logo=next.js&logoColor=white)](https://nextjs.org/)
+[![Supabase](https://img.shields.io/badge/Supabase-PostgreSQL-3ECF8E?logo=supabase&logoColor=white)](https://supabase.com/)
+[![Gradio](https://img.shields.io/badge/Gradio-HF%20Spaces-FF9D00?logo=huggingface&logoColor=white)](https://huggingface.co/spaces)
+[![Groq](https://img.shields.io/badge/Groq-gpt--oss--120b-F55036)](https://groq.com/)
+[![PWA](https://img.shields.io/badge/PWA-offline%20ready-5A0FC8)](https://web.dev/progressive-web-apps/)
+
+Smart India Hackathon 2026 · Problem Statement **SIH26024**
+
+[Live demo](#-demo-accounts) · [Architecture](#-architecture) · [Setup](#-setup) · [Roles](#-the-seven-roles)
+
+</div>
+
+---
+
+## The problem
+
+Compliance in Indian coal mining lives in spreadsheets, paper registers and email
+threads spread across the pit office, the safety office and corporate HQ. Nobody
+knows a mine's real compliance position until an inspector asks for it.
+
+This platform puts it in one record — and shows that record differently to each of
+the seven people who need it.
+
+## What it does
+
+| | |
+|---|---|
+| 📋 **Compliance** | 29 statutory requirements from the Mines Act 1952 and Coal Mines Regulations 2017, tracked across **459 mines** — 11,921 obligations with deadlines |
+| 🎯 **Risk scoring** | 192 flags across 4 types: recurring violations, anomalous accident rates (z-score vs national average), compliance gaps, CPCB threshold breaches |
+| 🔔 **Alerts** | Overdue items raise alerts addressed to a **role**, not a person. Unacknowledged ones escalate and re-address upward. Self-closing when fixed |
+| 📍 **Field app** | Installable PWA. Geo-tagged inspections queue offline and sync on reconnect |
+| 📄 **OCR** | Photograph a DGMS observation sheet; Tesseract digitises it on-device. Image never uploaded |
+| 🗺️ **GIS** | All 459 mines plotted by risk band |
+| 💬 **Assistant** | Grounded in live data, scoped to your role, answers in Hindi, Bengali, Odia, Telugu, Marathi |
+| 📑 **Reports** | Statutory compliance as PDF or CSV, generated on demand |
+
+## 📸 Screenshots
+
+> _Add screenshots here: corporate dashboard, GIS map, field app offline._
+
+| Corporate overview | GIS risk map | Field app |
+|---|---|---|
+| _screenshot_ | _screenshot_ | _screenshot_ |
+
+---
+
+## 🏗️ Architecture
+
 ```
-coal-governance-platform/
-├── supabase/
-│   ├── schema.sql          # run this first in Supabase SQL Editor
-│   └── load_seed_data.py   # loads the datasets/ files once you have Supabase keys
-├── backend/
-│   ├── app.py              # Gradio app — deploy to Hugging Face Spaces
-│   ├── requirements.txt
-│   └── README.md           # HF Space config header + secrets checklist
-└── frontend/
-    ├── pages/               # Next.js pages (login, dashboard, chat)
-    ├── lib/                 # supabase.js, api.js, useAuth.js
-    ├── package.json
-    └── .env.local.example
+  FIELD                DATA                  INTELLIGENCE          GOVERNANCE
+  ─────                ────                  ────────────          ──────────
+  PWA · GPS · OCR  →   Supabase Postgres  →  Risk scoring      →   7 dashboards
+  Offline queue        Row Level Security     Alerts engine         GIS · Reports
+                       Audit trail            Groq LLM              Audit trail
+       ▲                                                                 │
+       └───────────  corrective actions return to the field  ────────────┘
 ```
 
-## Setup order (do this in sequence)
+<table>
+<tr><td><b>Frontend</b></td><td>Next.js 14 · React · PWA (service worker + IndexedDB)</td></tr>
+<tr><td><b>Backend</b></td><td>Python · Gradio on Hugging Face Spaces</td></tr>
+<tr><td><b>Database</b></td><td>Supabase PostgreSQL with Row Level Security</td></tr>
+<tr><td><b>AI</b></td><td>Groq <code>openai/gpt-oss-120b</code> · rule-based risk engine</td></tr>
+<tr><td><b>Field</b></td><td>Tesseract.js OCR · browser Geolocation</td></tr>
+<tr><td><b>Geo &amp; docs</b></td><td>Leaflet + OpenStreetMap · jsPDF</td></tr>
+</table>
 
-### 1. Supabase
-1. Create a project at supabase.com
-2. SQL Editor → paste and run `supabase/schema.sql`
-3. Project Settings → API → copy your `Project URL`, `anon` key, and `service_role` key
-4. Copy everything from `datasets/` into `supabase/raw_data/` (16 of the 19 files load automatically; see `load_seed_data.py`'s NOTES for the rest), then run `load_seed_data.py` to seed the mines, DGMS stats, production, accidents, air/water quality, compliance items, and mock tables
+---
 
-### 2. Supabase Auth
-1. Create a project at supabase.com
-2. Authentication → Sign-in method → enable Email/Password
-3. Project Settings → General → Web app → copy the config into `frontend/.env.local`
+## 👥 The seven roles
 
-### 3. Groq
-1. Get an API key at console.groq.com
-2. Add it as a secret in your Hugging Face Space (see below) — never expose it in frontend code
+The same record, seen differently — with different powers over it.
 
-### 4. Backend (Hugging Face Spaces)
-1. Create a new Space → SDK: **Gradio**
-2. Push the contents of `backend/` to the Space repo
-3. Space Settings → Repository secrets → add `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, `GROQ_API_KEY`
-4. Once live, copy your Space URL (e.g. `https://yourname-coal-backend.hf.space`)
+| Role | Sees | Can do |
+|---|---|---|
+| 👷 **Worker** | Own grievances + outcome | File grievances, ask about entitlements |
+| 🔍 **Inspector** | Own mine's findings | Geo-tagged inspections, online or offline |
+| 🏭 **Mine official** | Everything at their mine | Update compliance, resolve grievances, answer risk flags |
+| 📋 **Contractor manager** | Contracts + documents | Manage contracts, blacklist |
+| 🏢 **Corporate** | All mines | Everything, everywhere |
+| ⚖️ **Regulator** | All mines + audit trail | **Observe only** |
+| 🛠️ **Administrator** | Who has access | Approve accounts, assign roles |
 
-### 5. Frontend (Vercel)
-1. `cd frontend && npm install`
-2. Copy `.env.local.example` → `.env.local`, fill in Supabase Auth, Supabase (anon key only), and your HF Space URL
-3. `npm run dev` to test locally, then push to GitHub and import into Vercel
-4. Add the same env vars in Vercel Project Settings → Environment Variables
+<details>
+<summary><b>Why the regulator can't edit anything</b></summary>
 
-## What's already wired up
-- Supabase Auth email/password login → `/dashboard` redirect → routed to the correct per-role dashboard (`frontend/pages/dashboard/index.js`)
-- **Role-based dashboards are fully built and enforced**, one page per role (`frontend/pages/dashboard/{worker,inspector,manager,contractor-manager,corporate,regulator}.js`), each wrapped in `<RoleGuard allowedRoles={[...]}>` (`frontend/components/RoleGuard.js`) — a worker typing `/dashboard/corporate` directly gets redirected back to `/dashboard`, not shown the page
-  - Worker: files grievances
-  - Inspector: field-inspection form (see below)
-  - Manager: compliance checklist, grievances, contractors for their mine
-  - Corporate: cross-subsidiary KPIs + high-risk mines list
-  - Regulator: national snapshot + audit log
-  - Contractor Manager: contractor list with blacklist toggle
-- **Inspector field-inspection web form is fully built**: `frontend/pages/dashboard/inspector.js` calls `navigator.geolocation.getCurrentPosition` and submits to the backend's `log_field_inspection` endpoint — no native app involved
-- Dashboard pulls live KPIs from the backend (`get_dashboard_summary`, `get_high_risk_mines`)
-- Chat page talks to Groq through the backend, grounded with a live Supabase snapshot
-- **`ai_risk_flags` is now populated**: `risk_scoring_job.py` computes 4 flag types (Anomalous Accident Rate, Recurring Violation, Compliance Gap, Environmental Threshold Breach) from the seeded data, with Groq-generated (or rule-based fallback) explanations — see its module docstring for exactly how each is computed and its limitations
-- **`compliance_tracking` is now seeded**: `seed_compliance_tracking.py` links every mine to its applicable statutory compliance items with a plausible status, so the Manager dashboard (built above) actually has data to show instead of an empty checklist
+<br>
 
-## What's still a stub / needs your input
-- `risk_scoring_job.py`'s "Anomalous Accident Rate" flag only sees mines with mine-level accident linkage (from `coal_dataset_2.xlsx`, now 97 of 152 rows matched after the improved fuzzy matcher below) — most other accident sources are national/subsidiary aggregates with no `mine_id` at all. Extending mine-level accident coverage further would still strengthen this flag.
-- Its "Environmental Threshold Breach" flag now uses **graduated confidence** (district-level match where a monitored city's name matches a mine's district exactly, ~21 mines; state-level proxy for the rest, ~129 mines) rather than one flat state-wide flag — but it's still name-matching, not real lat/long-based geocoding.
-- `seed_compliance_tracking.py` generates a plausible-but-synthetic compliance history (no real inspection records exist yet).
-- **17 of the 19 dataset files** have a seed-loader function written: mines (xlsx), the 4 DGMS CSVs, contractors, grievances, attendance, geo-inspections, both fatal-accident CSVs, both RS (Rajya Sabha) CSVs, air quality, water quality, statutory compliance items, and owner-wise serious accidents — see `load_seed_data.py`
-- Several of these required transcription first (PDFs aren't directly loadable): `AIRQUALITY_DATA2023_transcribed.csv` (400 rows), `WQuality_Data-2025_transcribed.csv` (32 rows), `statutory_compliance_items_transcribed.csv` (29 hand-paraphrased rows from the Coal Mines Regulations, 2017 gazette), and `dgms_owner_wise_serious_accidents_2017_2024_transcribed.csv` (178 rows, Table 2.9 of the DGMS Annual Report 2024). All four now sit alongside their source PDFs in `datasets/` and load the same way as the other CSVs
-- The only file left with no loader: `coal_dataset_1.pdf` (Coal Directory — turned out to be a statistics yearbook, not a regulations document). The rest of `COAL_DATASET_11_ANNUAL_REPORT.pdf` (cause-wise accident analysis, legislation history, occupational health) is narrative rather than tabular — a good candidate for AI-chat grounding context rather than a new table.
+Not a compliance status, not a grievance, not a risk flag. Oversight that can
+quietly clear its own findings isn't oversight, and an audit trail the observer
+can edit is worthless.
 
-This is a **website-only** platform — every user type (worker, inspector, manager, contractor-manager, corporate, regulator, admin) is served through the responsive Next.js frontend and its role-based dashboards (see `frontend/pages/dashboard/`). There is no separate mobile app; field inspectors log observations through the Inspector dashboard's web form, using the browser's Geolocation API to capture coordinates.
+Equally, the **mine official is the only role that can both see and act** on
+nearly everything at its site — accountability sits there, so the powers do too.
+Closing a grievance requires writing what was actually done; a status flag alone
+records that somebody clicked something, not that anything happened.
 
-## Setup order for the two new analytics scripts
-Run these after `load_seed_data.py`, in this order:
+</details>
+
+<details>
+<summary><b>How the four loops connect</b></summary>
+
+<br>
+
+**Grievance** — worker files → mine official resolves with a note → regulator sees
+it in the audit trail → worker reads the outcome → corporate sees which mines
+answer late.
+
+**Compliance** — deadline passes → alert to the mine official → status updated →
+audit log records who and when → regulator reviews → report filed.
+
+**Risk** — analytics flags a mine → appears on that official's dashboard → they
+mark it addressed *or dispute it*, with a note → corporate and regulator see both
+the finding and the answer.
+
+**Inspection** — photograph a paper sheet → OCR drafts it → GPS captured at the
+face → queues offline → high severity becomes an alert → tracked to closure.
+
+</details>
+
+---
+
+## 🔐 Access control
+
+**Enforced in the database, not the interface.** Every table carries Row Level
+Security policies. A worker querying another mine's grievance gets zero rows —
+not a hidden button, an empty result. A direct API call with a valid token returns
+only what that person may see.
+
+**Roles cannot be self-assigned.** A new signup gets no profile row and reaches no
+dashboard until an admin assigns one. Only admins can write to `user_profiles`.
+
+**Identity is derived, never submitted.** An inspection records the inspector from
+their verified session, so nothing can be filed under someone else's name.
+
+> [!NOTE]
+> A mine official marking a finding "addressed" is **self-certifying**. The audit
+> trail records who claimed it and when, so it's attributable — but nobody
+> independently verifies it. Verification is the next iteration, not a solved
+> problem.
+
+---
+
+## 📂 Structure
+
 ```
-python supabase/seed_compliance_tracking.py   # populates compliance_tracking (needed by the Manager dashboard and by the risk job's Compliance Gap flag)
-python supabase/risk_scoring_job.py           # populates ai_risk_flags (needed by the Corporate dashboard's high-risk-mines list)
+backend/
+  app.py                           Gradio app; each function is a REST endpoint
+  requirements.txt
+
+frontend/
+  pages/                           Login, 7 role dashboards, offline page
+  components/                      Layout, UI kit, alerts, chat, map, reports, OCR
+  lib/                             Supabase client, auth, API client, offline queue
+  public/                          PWA manifest, service worker, icons
+
+supabase/
+  schema.sql                       Tables, views, RLS policies
+  migration_02_workflow.sql        Grievance workflow, contractor compliance
+  migration_03_alerts.sql          Alerts and escalation
+  migration_04_view_security.sql   Closes an RLS bypass in views
+  migration_05_flag_response.sql   Lets mines answer risk flags
+  load_seed_data.py                DGMS + CIL source data
+  seed_demo_users.py               Demo accounts, one per role
+  risk_scoring_job.py              Risk flag generation
+  alerts_engine.py                 Alerts, reminders, escalation
 ```
-Both are safe to leave running on a schedule (cron / GitHub Action / Supabase scheduled function) — `risk_scoring_job.py` clears and recomputes its own table each run, and `seed_compliance_tracking.py` skips itself if the table already has rows.
 
-## Manager write-path + Admin approval flow (new)
-- **Manager dashboard** (`manager.js`) now has a working status dropdown per compliance row, wired to a new backend endpoint `update_compliance_status(tracking_id, new_status, remarks)` — managers can actually mark items Completed/Pending/Overdue/Not Applicable instead of the checklist only ever being seedable.
-- **Admin dashboard** (`admin.js`, new, routed at `/dashboard/admin`) lists every Supabase Auth-authenticated user with no `user_profiles` row yet (via `list_pending_signups`, which needs `SUPABASE_ANON_KEY` set on the backend) and lets an admin assign them a role/mine/subsidiary (via `approve_user_role`), closing the loop that `pending-approval.js` previously only described as a manual Supabase Table Editor step.
-- **Real bug fixed along the way**: `user_profiles.role`'s CHECK constraint in `schema.sql` was missing `'worker'` entirely (even though `dashboard/index.js` and `worker.js` already expected it) — any attempt to approve a worker signup would have failed at the database level. Added `'worker'` and `'admin'` to the constraint.
-- **Security note**: both admin endpoints require an `admin_key` matching `ADMIN_SECRET_KEY` (backend env var) / `NEXT_PUBLIC_ADMIN_API_KEY` (frontend env var) — a shared-secret stopgap, not real per-caller auth, since every Gradio-exposed function here is otherwise a public unauthenticated endpoint. See the SECURITY NOTE comment directly above `list_pending_signups` in `backend/app.py` for what a production version should do instead (verify the caller's own Supabase Auth ID token server-side).
-- **Bootstrapping the first admin**: there's necessarily a chicken-and-egg problem (you need an admin to approve people, but the first admin has no one to approve them) — insert that one row directly via the Supabase Table Editor, same manual step `pending-approval.js` already describes, just for a single account. Everyone else can go through `/dashboard/admin` after that.
+---
 
-## Improved mine-name matching (new)
-`load_seed_data.py`'s fuzzy matcher (used for `coal_dataset_2.xlsx`'s individual accidents, plus the mock contractors/grievances/attendance/geo-inspections CSVs) now does two-stage matching: first-token grouping, then Jaccard token-overlap disambiguation when multiple mines share a first token. Verified against `coal_dataset_2.xlsx`: row-level matches go from 85/152 to 97/152, with every newly-resolved match spot-checked by hand (no false positives introduced) — see the matcher's docstring in `load_seed_data.py` for details.
+## 🚀 Setup
+
+Order matters — each step depends on the one before.
+
+### 1. Database
+
+Create a Supabase project. In the SQL Editor run `schema.sql`, then migrations
+`02` → `05` in order. Under **Authentication → Email**, turn *off* email
+confirmation so demo logins work immediately.
+
+### 2. Seed data
+
+```bash
+cd supabase
+pip install -r requirements.txt
+
+python load_seed_data.py            # mines, accidents, production
+python seed_compliance_tracking.py  # statutory obligations
+python seed_demo_users.py           # one account per role
+python seed_workflow_data.py        # contractor docs, grievance state
+python risk_scoring_job.py          # risk flags
+python alerts_engine.py             # alerts and escalation
+```
+
+Each prompts for your Supabase URL and service-role key. Nothing is written to disk.
+
+### 3. Backend → Hugging Face Spaces
+
+Push `backend/app.py` and `requirements.txt` to a Gradio Space. Add four secrets:
+
+```
+SUPABASE_URL
+SUPABASE_SERVICE_ROLE_KEY
+SUPABASE_ANON_KEY
+GROQ_API_KEY
+```
+
+### 4. Frontend → Vercel
+
+Import the repo, set **root directory** to `frontend`, and add:
+
+```
+NEXT_PUBLIC_SUPABASE_URL
+NEXT_PUBLIC_SUPABASE_ANON_KEY
+NEXT_PUBLIC_BACKEND_URL        # your Space URL, no trailing slash
+```
+
+> Full detail and known failure modes: [`DEPLOYMENT.md`](DEPLOYMENT.md)
+
+---
+
+## 🔑 Demo accounts
+
+All use the password `CoalDemo#2026`.
+
+| Email | Role |
+|---|---|
+| `corporate@coaldemo.in` | Corporate management |
+| `regulator@coaldemo.in` | Regulator |
+| `manager@coaldemo.in` | Mine official |
+| `inspector@coaldemo.in` | Field inspector |
+| `contractor@coaldemo.in` | Contractor manager |
+| `worker@coaldemo.in` | Worker |
+
+---
+
+## 📚 Data sources
+
+Compliance requirements are **transcribed directly** from the Acts and
+Regulations, not paraphrased.
+
+- The Mines Act, 1952 · Coal Mines Regulations, 2017 — DGMS
+- Mines Rules, 1955 · Contract Labour (R&A) Act, 1970
+- DGMS annual report — inspections, improvement notices, prosecutions
+- DGMS fatal & serious accident statistics, owner-wise, 2017–2024
+- Indian Coal Mines Dataset (Jan 2021) — 459 mines, location and status
+- CPCB National Ambient Air Quality Standards, 2009 · CGWB water quality data
+- Rajya Sabha unstarred questions on coal production and safety
+
+Attendance, contractor and grievance records are **synthetic**, generated to
+demonstrate the workflows, and flagged as such in the database.
+
+---
+
+<div align="center">
+<sub>Built for Smart India Hackathon 2026 · Problem Statement SIH26024</sub>
+</div>
