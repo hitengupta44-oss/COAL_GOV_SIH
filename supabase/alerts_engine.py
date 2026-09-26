@@ -450,8 +450,14 @@ def escalate():
 # (or, for oversight roles, to everyone in the role). One digest per person
 # per run, so a bad night produces one email, not forty.
 #
-# Configure with SMTP_HOST, SMTP_PORT (587), SMTP_USER, SMTP_PASSWORD and
-# ALERT_EMAIL_FROM. With no SMTP_HOST set this step is skipped.
+# Configure with SMTP_HOST, SMTP_PORT (587 for STARTTLS, 465 for SSL),
+# SMTP_USER, SMTP_PASSWORD and ALERT_EMAIL_FROM. With no SMTP_HOST set this
+# step is skipped.
+#
+# ALERT_EMAIL_REDIRECT (optional): send every email to this one address
+# instead, with the intended recipient named in the subject. For demos and
+# testing -- the demo accounts' addresses (@coaldemo.in) are not real
+# inboxes, and mail to them is never attempted.
 # ------------------------------------------------------------
 def email_notifications():
     host = os.environ.get("SMTP_HOST")
@@ -483,28 +489,45 @@ def email_notifications():
             if match:
                 inbox[(p["email"], p.get("full_name") or "")].append(a)
 
-    sender = os.environ.get("ALERT_EMAIL_FROM", os.environ.get("SMTP_USER", "alerts@localhost"))
-    sent_ids, sent = set(), 0
-    with smtplib.SMTP(host, int(os.environ.get("SMTP_PORT", "587")), timeout=30) as smtp:
-        smtp.starttls()
+    sender = os.environ.get("ALERT_EMAIL_FROM") or os.environ.get("SMTP_USER") or "alerts@localhost"
+    redirect = (os.environ.get("ALERT_EMAIL_REDIRECT") or "").strip()
+    demo_domain = "@" + os.environ.get("DEMO_EMAIL_DOMAIN", "coaldemo.in")
+    port = int(os.environ.get("SMTP_PORT") or "587")
+    sent_ids, sent, skipped = set(), 0, 0
+    smtp_cls = smtplib.SMTP_SSL if port == 465 else smtplib.SMTP
+    with smtp_cls(host, port, timeout=30) as smtp:
+        if port != 465:
+            smtp.ehlo()
+            if smtp.has_extn("starttls"):
+                smtp.starttls()
+                smtp.ehlo()
         if os.environ.get("SMTP_USER"):
             smtp.login(os.environ["SMTP_USER"], os.environ.get("SMTP_PASSWORD", ""))
         for (email, name), items in inbox.items():
+            if not redirect and email.lower().endswith(demo_domain):
+                skipped += 1          # demo address: not a real inbox
+                continue
             items.sort(key=lambda x: (x["severity"] != "Critical", x.get("due_date") or "9999"))
             msg = EmailMessage()
-            msg["From"], msg["To"] = sender, email
+            msg["From"], msg["To"] = sender, (redirect or email)
             crit = sum(1 for x in items if x["severity"] == "Critical")
-            msg["Subject"] = (f"{len(items)} alert{'s' if len(items) > 1 else ''} need attention"
+            msg["Subject"] = ((f"[for {name or email} <{email}>] " if redirect else "")
+                              + (f"{len(items)} alerts need attention" if len(items) > 1 else "1 alert needs attention")
                               + (f" ({crit} critical)" if crit else ""))
             lines = [f"{name or 'Hello'},", "", "These need action on the Coal Mine Governance platform:", ""]
-            for x in items:
+            # One readable email, not a wall: the most urgent 25, then a count.
+            shown, rest = items[:25], len(items) - 25
+            for x in shown:
                 lines.append(f"[{x['severity']}] {x['title']}")
                 if x.get("body"):
                     lines.append(f"    {x['body']}")
                 if x.get("due_date"):
                     lines.append(f"    Due {x['due_date']}")
                 lines.append("")
-            lines.append("Open the platform to acknowledge or act on them.")
+            if rest > 0:
+                lines += [f"...and {rest} more.", ""]
+            lines.append("Open the platform to acknowledge or act on them: "
+                         + os.environ.get("APP_URL", "https://coal-gov-sih.vercel.app") + "/dashboard")
             msg.set_content("\n".join(lines))
             try:
                 smtp.send_message(msg)
@@ -512,6 +535,8 @@ def email_notifications():
                 sent_ids.update(x["alert_id"] for x in items)
             except Exception as e:
                 print(f"  ! could not email {email}: {e}")
+    if skipped:
+        print(f"  {skipped} demo addresses ({demo_domain}) not emailed; set ALERT_EMAIL_REDIRECT to receive them")
 
     ids = list(sent_ids)
     now = dt.datetime.now(dt.timezone.utc).isoformat()
