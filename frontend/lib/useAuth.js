@@ -102,7 +102,10 @@ export function AuthProvider({ children }) {
   const logout = async () => {
     setLoading(true);
     try {
-      await supabase.auth.signOut();
+      // "local": end the session on this device only. The default ends it
+      // on EVERY device, so logging out in one tab or phone silently broke
+      // the person's other open sessions.
+      await supabase.auth.signOut({ scope: "local" });
     } finally {
       // Cached API responses belong to the person signing out.
       try {
