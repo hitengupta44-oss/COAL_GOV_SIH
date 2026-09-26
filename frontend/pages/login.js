@@ -64,6 +64,9 @@ export default function Login() {
               : "An administrator assigns your role once you've signed up."}
           </p>
 
+          {!error && router.query.expired && (
+            <Notice>Your session ended (you may have signed out on another device). Please sign in again.</Notice>
+          )}
           {error && <Notice tone="error">{error}</Notice>}
 
           {mode === "signup" && (
