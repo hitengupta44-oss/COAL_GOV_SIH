@@ -62,6 +62,14 @@ function AuditContent() {
   const [checking, setChecking] = useState(false);
   const [error, setError] = useState(null);
 
+  const [anchors, setAnchors] = useState(null);
+  useEffect(() => {
+    supabase.from("audit_anchor_status")
+      .select("anchor_id, anchored_at, head_seq, head_hash, status, bitcoin_block, confirmed_at, stamped_text, ots_proof, still_matches")
+      .order("anchored_at", { ascending: false }).limit(60)
+      .then(({ data }) => setAnchors(data || []));
+  }, []);
+
   const load = async () => {
     let q = supabase.from("audit_trail_view")
       .select("chain_seq, timestamp, action, table_affected, record_id, details, row_hash, actor_name, actor_role")
@@ -105,6 +113,8 @@ function AuditContent() {
         <Button onClick={runVerify} disabled={checking}>{checking ? "Verifying" : "Verify the audit chain"}</Button>
       </Card>
 
+      <Anchors rows={anchors} />
+
       <Card title="Changes" action={
         <select value={table} onChange={(e) => setTable(e.target.value)} style={{ width: 220 }}>
           <option value="">All records</option>
@@ -132,6 +142,65 @@ function AuditContent() {
         />
       </Card>
     </Layout>
+  );
+}
+
+// Save a file the browser already holds (no server round trip).
+function saveFile(name, bytes, type) {
+  const url = URL.createObjectURL(new Blob([bytes], { type }));
+  const a = document.createElement("a");
+  a.href = url; a.download = name; a.click();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+const fromBase64 = (b64) => Uint8Array.from(atob(b64), (c) => c.charCodeAt(0));
+
+// Bitcoin anchors (migration 14). Each is an OpenTimestamps proof that the
+// chain's latest hash existed at that time; anyone can check it at
+// opentimestamps.org with the two downloaded files, without trusting us.
+function Anchors({ rows }) {
+  const list = rows || [];
+  const broken = list.filter((a) => a.still_matches === false);
+  const confirmed = list.filter((a) => a.status === "Confirmed");
+  return (
+    <Card title="Public blockchain anchors" severity={broken.length ? "Critical" : confirmed.length ? "Completed" : undefined}>
+      <p style={{ fontSize: 14, color: "var(--ink-soft)", marginTop: -4 }}>
+        Once a day the chain&apos;s latest hash is stamped into the <strong>Bitcoin blockchain</strong> using
+        OpenTimestamps. Even someone with full database access cannot rewrite history without the chain
+        disagreeing with these public proofs. To check one yourself, download both files and open them at{" "}
+        <a href="https://opentimestamps.org" target="_blank" rel="noreferrer">opentimestamps.org</a>.
+      </p>
+      {broken.length > 0 && (
+        <Notice tone="error">
+          <strong>{broken.length} anchor{broken.length > 1 ? "s" : ""} no longer match the chain.</strong> The entries
+          anchored in Bitcoin have been rewritten since: treat the audit trail after that point as tampered with.
+        </Notice>
+      )}
+      <Table
+        columns={[
+          { key: "anchored_at", label: "Anchored", width: 180, nowrap: true, render: (a) => fmt(a.anchored_at) },
+          { key: "head_seq", label: "Up to entry", width: 110, align: "right" },
+          { key: "status", label: "Bitcoin", width: 210, render: (a) => a.status === "Confirmed"
+              ? <span style={{ color: "var(--sev-low)" }}>Confirmed in block {Number(a.bitcoin_block).toLocaleString()}</span>
+              : <span style={{ color: "var(--ink-soft)" }}>Submitted; confirms in a few hours</span> },
+          { key: "still_matches", label: "Matches today's chain", width: 170, render: (a) => a.still_matches
+              ? <span style={{ color: "var(--sev-low)" }}>Yes</span>
+              : <strong style={{ color: "var(--sev-critical)" }}>No: rewritten</strong> },
+          { key: "files", label: "Proof", width: 220, render: (a) => (
+              <>
+                <Button variant="quiet" onClick={() => saveFile(`audit-anchor-${a.head_seq}.txt`, a.stamped_text, "text/plain")}>Text</Button>
+                <Button variant="quiet" style={{ marginLeft: 8 }}
+                  onClick={() => saveFile(`audit-anchor-${a.head_seq}.txt.ots`, fromBase64(a.ots_proof), "application/octet-stream")}>
+                  .ots proof
+                </Button>
+              </>
+            ) },
+        ]}
+        rows={list}
+        countLabel="anchors"
+        severityOf={(a) => (a.still_matches === false ? "Critical" : a.status === "Confirmed" ? "Completed" : "Pending")}
+        empty="No anchors yet. The scheduled job creates the first one on its next run."
+      />
+    </Card>
   );
 }
 
