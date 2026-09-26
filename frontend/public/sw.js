@@ -11,7 +11,7 @@
 
 // Bump on any change to this file's caching rules; activation deletes every
 // cache from an older version.
-const VERSION = "v3";
+const VERSION = "v4";
 const SHELL = `shell-${VERSION}`;
 const DATA = `data-${VERSION}`;
 const LIBS = `libs-${VERSION}`;
@@ -36,6 +36,7 @@ const SHELL_URLS = [
   "/dashboard/incidents",
   "/dashboard/actions",
   "/dashboard/operations",
+  "/dashboard/logistics",
   "/login",
   "/offline",
   "/manifest.json",

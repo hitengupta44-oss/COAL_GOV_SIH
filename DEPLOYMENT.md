@@ -17,7 +17,8 @@ Deploy in this order. Each step depends on the one before it.
    `migration_06_rls_hardening.sql`, `migration_07_field_operations.sql`,
    `migration_08_returns_and_audit_chain.sql`, `migration_09_predictions.sql`,
    `migration_10_governance_completion.sql`, `migration_11_real_data.sql`,
-   `migration_12_real_monitoring.sql`.
+   `migration_12_real_monitoring.sql`, `migration_13_incident_notice.sql`,
+   `migration_14_blockchain_anchor.sql`, `migration_15_grade_verification.sql`.
    Every migration is safe to re-run. Migration 07 also creates the private
    `evidence` storage bucket and adds the `alerts` table to Realtime.
 3. Go to **Settings → API** and copy three values you'll need later:
@@ -48,6 +49,8 @@ python predictive_job.py            # predictions + early warnings
 python alerts_engine.py             # alerts and escalation
 python load_real_monitoring.py      # CPCB river data 2024, Pakri Barwadih's own
                                     # air readings, Jamuniya's lease extent
+python load_declared_grades.py      # MCL's official 2025-26 grade declaration
+python seed_dispatches.py           # demo dispatches and coal grade checks
 python publish_audit_anchor.py      # confirms the audit chain is intact
 ```
 
@@ -135,15 +138,64 @@ them. `.github/workflows/governance-jobs.yml` does, with nothing to host:
    |---|---|
    | `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY` | yes |
    | `GROQ_API_KEY` | optional — plain-English risk-flag explanations |
-   | `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASSWORD`, `ALERT_EMAIL_FROM` | optional — email alerts (e.g. a Gmail app password on `smtp.gmail.com:587`) |
+   | `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASSWORD`, `ALERT_EMAIL_FROM` | optional — email alerts (see [Email alerts](#6-email-alerts)) |
+   | `ALERT_EMAIL_REDIRECT` | optional — send every alert email to this one inbox (demos) |
 
 2. **Actions → Governance jobs → Run workflow** once to check. Each run's summary
    shows the audit chain's latest hash; a broken chain fails the run and GitHub
    emails the repository owners.
+3. **Bitcoin anchoring needs nothing extra** (migration 14). Once a day the run
+   stamps the chain's latest hash with [OpenTimestamps](https://opentimestamps.org),
+   free and without any wallet; a few hours later a run confirms it in a Bitcoin
+   block. Both show in the run summary and on the **Audit trail** page, which offers
+   the two files anyone can check at opentimestamps.org.
 
 `.github/workflows/db-tests.yml` needs no secrets: it rebuilds the database from
 the migrations in a throwaway Postgres and runs the policy tests on every push
 that touches `supabase/`.
+
+## 6. Email alerts
+
+High and Critical alerts are emailed once, as one digest per person per run.
+
+1. Use a Gmail account: **Google Account → Security → 2-Step Verification** (turn on),
+   then **App passwords** → create one named "Mine Governance". Copy the 16 characters.
+2. Add these Actions secrets:
+
+   | Secret | Value |
+   |---|---|
+   | `SMTP_HOST` | `smtp.gmail.com` |
+   | `SMTP_PORT` | `587` |
+   | `SMTP_USER` | your Gmail address |
+   | `SMTP_PASSWORD` | the 16-character app password (not your normal password) |
+   | `ALERT_EMAIL_FROM` | your Gmail address |
+   | `ALERT_EMAIL_REDIRECT` | your own inbox — **needed for the demo**: the demo accounts' `@coaldemo.in` addresses are not real, so without it nothing is sent to them |
+
+3. Run the workflow. With the redirect set, each demo person's digest arrives in your
+   inbox with "[for Sunil Bhattacharya <manager@coaldemo.in>]" in the subject. The
+   first run sends the backlog (the 25 most urgent per person, then a count); after
+   that only new alerts. For real users with real addresses, leave the redirect unset.
+
+## 7. Android app
+
+The platform is a PWA; [PWABuilder](https://www.pwabuilder.com) packages it as a real
+Android app (a Trusted Web Activity): installable APK, its own icon, full screen, no
+browser bar, same offline support. No Android Studio needed.
+
+1. Go to **pwabuilder.com**, enter `https://coal-gov-sih.vercel.app`, **Start**.
+2. **Package for stores → Android → Generate package**. Keep the defaults, or set
+   the package ID (e.g. `app.vercel.coal_gov_sih.twa`) and app name.
+3. Download the zip. Keep `signing.keystore` and `signing-key-info.txt` safe: they
+   are needed to publish updates.
+4. Open `assetlinks.json` from the zip and copy two values into **Vercel → Project →
+   Settings → Environment Variables**, then redeploy:
+   - `ANDROID_PACKAGE` = the `package_name`
+   - `ANDROID_SHA256` = the `sha256_cert_fingerprints` value (`AA:BB:…`)
+
+   Check `https://coal-gov-sih.vercel.app/.well-known/assetlinks.json` shows them.
+   Without this step the app still works, but shows a browser bar at the top.
+5. Copy the `.apk` to an Android phone and open it (allow "install unknown apps").
+   For the Play Store, upload the `.aab` instead.
 
 ---
 
@@ -156,6 +208,24 @@ For a project already running `schema.sql` + migrations 02–05:
 2. **Seed the new modules** (optional but recommended for demos):
    `python seed_compliance_history.py`, `python seed_field_operations.py`, then
    `risk_scoring_job.py`, `predictive_job.py`, `alerts_engine.py`.
+
+For a project already on migration 14, run only `migration_15_grade_verification.sql`,
+then `python load_declared_grades.py` (before the seed, so demo dispatches use the official
+grades), then `python seed_dispatches.py`, and push the new `backend/app.py` to the Space (it adds
+the coal photo screening). The vision model defaults to `qwen/qwen3.8-27b`; if Groq
+retires it, set a `GROQ_VISION_MODEL` secret on the Space to the model listed at
+https://console.groq.com/docs/vision.
+
+**Official grade declarations.** `load_declared_grades.py` loads every
+`raw_data/*_declared_grades_*.csv`. MCL's 2025-26 declaration (order 1251, 31.03.2025)
+is included. Three links from the order to the mines table are inferred, not stated in
+the order: "ILBL OCP" → LAKHANPUR, BELPAHAR and LILARI; "Orient Mine no 1 & 2" →
+MINE NO. 1&2; "HBM" → HIRAKHAND BUNDIA INCLINE. To add another subsidiary, copy the
+CSV's columns into e.g. `secl_declared_grades_2025-26.csv` and run the loader again.
+
+For a project already on migration 13, run only `migration_14_blockchain_anchor.sql`
+and push the updated `supabase/requirements.txt` (the workflow installs the
+OpenTimestamps client from it). Email and the Android app are sections 6 and 7.
 
 For a project already on migration 11, run only `migration_12_real_monitoring.sql`, then
 `python load_real_monitoring.py` (re-running adds nothing twice). To give a mine its

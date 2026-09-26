@@ -132,3 +132,8 @@ export const approveUserRole = (accessToken, adminKey, payload) =>
     payload.mineId || "",
     payload.subsidiaryId || "",
   ]);
+
+// Coal grade check: AI screening of the load photos (migration 15). The
+// backend reads the photos itself and stores the result on the check.
+export const screenCoalPhotos = (accessToken, checkId) =>
+  callBackend("screen_coal_photos", [accessToken, checkId]);

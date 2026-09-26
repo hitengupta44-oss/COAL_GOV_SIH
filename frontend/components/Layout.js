@@ -17,12 +17,13 @@ const T = ["/dashboard/attendance", "nav.attendance"];
 const O = ["/dashboard/operations", "nav.operations"];
 const R = ["/dashboard/returns", "nav.returns"];
 const U = ["/dashboard/audit", "nav.audit"];
+const L = ["/dashboard/logistics", "nav.logistics"];
 const NAV = {
   admin: [["/dashboard/admin", "nav.users"], U],
-  corporate_admin: [["/dashboard/corporate", "nav.overview"], A, I, O, R, U],
-  regulator: [["/dashboard/regulator", "nav.oversight"], A, I, O, R, U],
-  mine_official: [["/dashboard/manager", "nav.mineOps"], A, I, T, O, R],
-  inspector: [["/dashboard/inspector", "nav.inspections"], A, I, T, O],
+  corporate_admin: [["/dashboard/corporate", "nav.overview"], A, I, O, L, R, U],
+  regulator: [["/dashboard/regulator", "nav.oversight"], A, I, O, L, R, U],
+  mine_official: [["/dashboard/manager", "nav.mineOps"], A, I, T, O, L, R],
+  inspector: [["/dashboard/inspector", "nav.inspections"], A, I, T, O, L],
   contractor_manager: [["/dashboard/contractor-manager", "nav.contractors"], I, T],
   worker: [["/dashboard/worker", "nav.myMine"], T, I],
 };

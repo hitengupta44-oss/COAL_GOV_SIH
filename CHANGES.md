@@ -1,5 +1,46 @@
 # Changes since the GitHub version
 
+## Round 6 — dispatch grade verification (migration 15)
+
+| Area | Now |
+|---|---|
+| Dispatches | Mine records each rake/truck with consignee, tonnes and **declared grade**; immutable once recorded |
+| Grade check | Inspector photographs the load (up to 3 photos) and records GCV, ash, moisture and how they were measured; geo-fenced. The database derives the **actual grade from the Coal Controller's GCV bands** and the verdict: matches, better, **grade slippage** (by N grades), lab test needed, or visual check only |
+| AI screening | Backend sends the photos to Groq's vision model (`qwen/qwen3.8-27b`) for visible warning signs; result written by the backend only. Photos alone never produce "slippage" — at most "lab test needed" |
+| Alerts | Slippage alerts the mine (High; Critical at 2+ grades) and at 2+ grades corporate and the regulator; email digests include them |
+| Answer and close | Mine accepts or disputes with a written response (kept after closing); corporate closes |
+| Report | PDF with dispatch, test, verdict, AI screening, the mine's answer, embedded photos and a SHA-256 fingerprint |
+| Oversight | Grade slippage by mine: checks, slippage count, tonnes below grade, average grades below |
+| Assistant | Answers about grade slippage within the user's scope |
+| Official grade | MCL's **Declaration of Annual Coal Grade 2025-26** (order 1251, 31.03.2025, Colliery Control (Amendment) Rules 2021) transcribed: 38 dispatch points in 10 areas, linked to 17 mines. Each dispatch shows the mine's official grade; one **declared above it** alerts corporate at once. The mine picks the dispatch point from the official list. Oversight sees the full declaration; mines see their own area |
+
+Also: `load_declared_grades.py` and `raw_data/mcl_declared_grades_2025-26.csv`;
+`seed_dispatches.py` (~540 demo dispatches at the official grade where one is declared,
+~190 checks with placeholder images, never presented as real photos). Database tests: 174 checks.
+
+## Round 5 — Android app, email alerts, Bitcoin anchoring (migration 14)
+
+| Area | Was | Now |
+|---|---|---|
+| Audit anchoring | Chain head written to GitHub's job log | Also stamped daily into the **Bitcoin blockchain** with OpenTimestamps (free, no wallet), upgraded to a confirmed block hours later. The Audit page lists every anchor, flags any whose anchored entry no longer matches today's chain, and offers the two files to verify at opentimestamps.org. Anchors cannot be edited or deleted, even by the database owner |
+| Email alerts | Code present, never configured; demo addresses not real | `ALERT_EMAIL_REDIRECT` sends every digest to one real inbox (named recipient in the subject); demo addresses are never mailed; digests capped at the 25 most urgent; SSL (465) or STARTTLS (587). Tested end to end against a local mail server |
+| Android app | PWA only | Manifest completed for PWABuilder (id, scope, screenshots, shortcuts); `/.well-known/assetlinks.json` served from two Vercel variables so the app opens full screen |
+| Phone layout | Menu filled the first screen; stat boxes squeezed into one row | Menu folds behind a button; stats in two columns |
+| App distribution | — | The login page offers "Download the Android app" (hidden inside the installed app), linking to the latest GitHub release; iPhone users get Add-to-Home-Screen instructions. Login page stacks on phones |
+| Updates reaching users | The offline cache served pages cache-first forever, so returning users kept an old version after every deploy | Pages are network-first (cached copy only offline); build files stay cache-first; cache version bumped to clear old copies |
+
+New: `supabase/migration_14_blockchain_anchor.sql`, `frontend/pages/api/assetlinks.js`,
+`frontend/public/screenshots/`. Changed: `publish_audit_anchor.py`, `alerts_engine.py`,
+`requirements.txt`, `governance-jobs.yml`, `audit.js`, `Layout.js`, `ui.js`, `globals.css`,
+`manifest.json`, `next.config.js`. Database tests: 149 checks.
+
+## Migration 13 — roof and side falls need a DGMS notice
+
+Found in live testing: a Roof/Side Fall got High severity but was not on the list of incidents
+needing a statutory notice to DGMS, so it could be closed with no notice on record. It now
+needs one, like a serious injury, fire or inundation; open roof-fall incidents are brought
+under the rule. Database tests: 142 checks.
+
 ## Round 4 — real monitoring data and lease boundaries (migration 12)
 
 | Area | Was | Now |

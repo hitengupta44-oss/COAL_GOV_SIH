@@ -527,6 +527,120 @@ def main():
           refused(u["official_a"], "update mine_boundaries set source = 'x' where mine_id = %s returning 1", (A,))
           or not run(u["official_a"], "update mine_boundaries set source = 'x' where mine_id = %s returning 1", (A,)))
 
+    print("\nRoof falls need a DGMS notice (migration 13)")
+    rf = run(u["official_a"], "insert into incidents (mine_id, occurred_at, incident_type, description, persons_injured) "
+             "values (%s, now() - interval '1 hour', 'Roof/Side Fall', 'Roof fall at face', 1) "
+             "returning incident_id, notifiable, severity", (A,))[0]
+    check("a roof/side fall is notifiable and High severity", rf[1] is True and rf[2] == "High")
+    check("a roof fall cannot be closed without the DGMS notice",
+          refused(u["official_a"], "update incidents set status = 'Closed', investigation_findings = 'x', root_cause = 'y' "
+                  "where incident_id = %s returning 1", (rf[0],), contains="DGMS notice"))
+
+    print("\nBlockchain anchors (migration 14)")
+    good = admin("select chain_seq, row_hash from audit_log order by chain_seq desc limit 1", fetch=True)[0]
+    admin("insert into audit_anchors (head_seq, head_hash, stamped_text, ots_proof) values "
+          "(%s, %s, 'anchor text', 'cHJvb2Y='), (1, 'rewritten-since', 'old anchor', 'cHJvb2Y=')", (good[0], good[1]))
+    st = dict(admin("select head_hash, still_matches from audit_anchor_status", fetch=True))
+    check("an anchor matching today's chain says so", st.get(good[1]) is True)
+    check("an anchor whose entry no longer carries the anchored hash is flagged", st.get("rewritten-since") is False)
+    check("regulators can read the anchors", len(run(u["regulator"], "select 1 from audit_anchor_status")) >= 2)
+    check("workers cannot read the anchors", not run(u["worker_a"], "select 1 from audit_anchor_status"))
+    def owner_refused(sql, msg):
+        # Even the database owner (service role, SQL editor) is stopped.
+        try:
+            admin(sql)
+            return False
+        except Exception as e:
+            conn.rollback()
+            return msg in str(e)
+    check("even the database owner cannot edit an anchor's claim",
+          owner_refused("update audit_anchors set head_hash = 'x'", "cannot be changed"))
+    check("even the database owner cannot delete an anchor",
+          owner_refused("delete from audit_anchors", "cannot be deleted"))
+    check("a pending anchor can be confirmed",
+          bool(admin("update audit_anchors set status = 'Confirmed', bitcoin_block = 900000 "
+                     "where head_hash = %s returning 1", (good[1],), fetch=True)))
+
+    print("\nDispatch grade verification (migration 15)")
+    check("GCV bands follow the Coal Controller's table",
+          admin("select gcv_to_grade(7200), gcv_to_grade(4300), gcv_to_grade(4301), gcv_to_grade(2200)", fetch=True)[0]
+          == ("G1", "G11", "G10", "Ungraded"))
+    dsp = run(u["official_a"], "insert into coal_dispatches (mine_id, dispatch_date, mode, vehicle_ref, consignee, quantity_t, declared_grade) "
+              "values (%s, current_date, 'Rail', 'RK-T-1', 'Test TPP', 3800, 'G11') returning dispatch_id", (A,))[0][0]
+    check("the mine official records a dispatch", bool(dsp))
+    check("an inspector cannot record a dispatch",
+          refused(u["inspector_a"], "insert into coal_dispatches (mine_id, dispatch_date, mode, vehicle_ref, consignee, quantity_t, declared_grade) "
+                  "values (%s, current_date, 'Road', 'X', 'Y', 20, 'G10') returning 1", (A,)))
+    check("the declared grade cannot be changed afterwards",
+          refused(u["official_a"], "update coal_dispatches set declared_grade = 'G9' where dispatch_id = %s returning 1", (dsp,),
+                  contains="cannot be changed"))
+    check("a grade check needs a photo",
+          refused(u["inspector_a"], "insert into grade_checks (dispatch_id, test_method, gcv_kcal_kg) values (%s, 'Field test', 3600) returning 1",
+                  (dsp,), contains="photo"))
+    gc = run(u["inspector_a"], "insert into grade_checks (dispatch_id, photo_paths, test_method, gcv_kcal_kg, ai_assessment) "
+             "values (%s, %s, 'Laboratory (third party)', 3600, '{\"summary\": \"forged\"}') "
+             "returning check_id, assessed_grade, grade_gap, verdict, ai_assessment", (dsp, [f"{A}/grade-checks/p.jpg"]))[0]
+    check("GCV 3600 on a G11 dispatch is G13: two grades of slippage", gc[1:4] == ("G13", 2, "Grade slippage"))
+    check("the inspector cannot supply the AI screening", gc[4] is None)
+    al = admin("select recipient_role from alerts where source_table = 'grade_checks' and source_id like %s", (f"{gc[0]}%",), fetch=True)
+    check("two grades of slippage alerts the mine, corporate and the regulator",
+          sorted(r[0] for r in al) == ["corporate_admin", "mine_official", "regulator"])
+    other = admin("insert into coal_dispatches (mine_id, dispatch_date, mode, vehicle_ref, consignee, quantity_t, declared_grade) "
+                  "values (%s, current_date, 'Road', 'OD01X1', 'Other TPP', 25, 'G12') returning dispatch_id", (B,), fetch=True)[0][0]
+    check("an inspector cannot check another mine's dispatch",
+          refused(u["inspector_a"], "insert into grade_checks (dispatch_id, photo_paths) values (%s, %s) returning 1",
+                  (other, [f"{B}/grade-checks/x.jpg"]), contains="own mine"))
+    check("workers do not see dispatch grade checks", not run(u["worker_a"], "select 1 from grade_checks"))
+    check("the inspector cannot edit the recorded test",
+          refused(u["inspector_a"], "update grade_checks set gcv_kcal_kg = 4200 where check_id = %s returning 1", (gc[0],)))
+    check("the mine must give a reason to dispute",
+          refused(u["official_a"], "update grade_checks set status = 'Disputed by mine' where check_id = %s returning 1", (gc[0],),
+                  contains="response"))
+    run(u["official_a"], "update grade_checks set status = 'Disputed by mine', mine_response = 'Referee sample sent' "
+        "where check_id = %s returning 1", (gc[0],))
+    check("the mine cannot answer twice",
+          refused(u["official_a"], "update grade_checks set status = 'Accepted by mine', mine_response = 'ok' where check_id = %s returning 1",
+                  (gc[0],), contains="already answered"))
+    check("only corporate closes a check",
+          refused(u["official_a"], "update grade_checks set status = 'Closed' where check_id = %s returning 1", (gc[0],)))
+    run(u["corporate"], "update grade_checks set status = 'Closed' where check_id = %s returning 1", (gc[0],))
+    closed = admin("select status, mine_answer, mine_response from grade_checks where check_id = %s", (gc[0],), fetch=True)[0]
+    check("closing keeps the mine's answer", closed == ("Closed", "Disputed", "Referee sample sent"))
+    v = run(u["inspector_a"], "insert into grade_checks (dispatch_id, photo_paths) values (%s, %s) returning check_id, verdict",
+            (dsp, [f"{A}/grade-checks/q.jpg"]))[0]
+    check("photos alone give 'Visual check only'", v[1] == "Visual check only")
+    admin("update grade_checks set ai_assessment = '{\"consistent_with_declared\": \"no\"}', ai_model = 'test', ai_at = now() "
+          "where check_id = %s", (v[0],))
+    check("a screening that finds the load inconsistent asks for a lab test, not a verdict",
+          admin("select verdict from grade_checks where check_id = %s", (v[0],), fetch=True)[0][0] == "Lab test needed")
+
+    print("\nOfficial annual grade declarations (migration 15)")
+    check("a mine official cannot load a grade declaration",
+          refused(u["official_a"], "insert into declared_grades (subsidiary, fy, area, dispatch_point, point_type, grade, mine_ids, source) "
+                  "values ('TST', '2025-26', 'Alpha', 'ALPHA', 'Mine', 'G9', %s, 'forged') returning 1", ([A],)))
+    admin("insert into declared_grades (subsidiary, fy, area, dispatch_point, point_type, grade, mine_ids, source) values "
+          "('TST', '2024-25', 'Alpha', 'ALPHA', 'Mine', 'G10', %s, 'Test order 1'), "
+          "('TST', '2025-26', 'Alpha', 'SIDING 1', 'Siding', 'G13', %s, 'Test order 2'), "
+          "('TST', '2025-26', 'Alpha', 'ALPHA', 'Mine', 'G12', %s, 'Test order 2')", ([A], [A], [A]))
+    check("everyone signed in can read the declarations",
+          len(run(u["worker_a"], "select 1 from declared_grades where subsidiary = 'TST'")) == 3)
+    og = run(u["official_a"], "select grade, fy from official_grade_of(%s)", (A,))
+    check("the official grade is the latest year's mine-level row", og == [("G12", "2025-26")])
+    check("a mine with no declaration has no official grade", run(u["official_b"], "select * from official_grade_of(%s)", (B,)) == [])
+    hi = run(u["official_a"], "insert into coal_dispatches (mine_id, dispatch_date, mode, vehicle_ref, consignee, quantity_t, declared_grade, dispatch_point) "
+             "values (%s, current_date, 'Rail', 'RK-T-2', 'Test TPP', 3700, 'G10', 'SIDING 1') returning dispatch_id", (A,))[0][0]
+    ok = run(u["official_a"], "insert into coal_dispatches (mine_id, dispatch_date, mode, vehicle_ref, consignee, quantity_t, declared_grade) "
+             "values (%s, current_date, 'Rail', 'RK-T-3', 'Test TPP', 3700, 'G12') returning dispatch_id", (A,))[0][0]
+    al = admin("select recipient_role, severity from alerts where source_table = 'coal_dispatches' and source_id = %s", (str(hi),), fetch=True)
+    check("a dispatch declared above the official grade alerts corporate", al == [("corporate_admin", "High")])
+    check("a dispatch at the official grade raises nothing",
+          not admin("select 1 from alerts where source_table = 'coal_dispatches' and source_id = %s", (str(ok),), fetch=True))
+    dv = dict((r[0], r[1:]) for r in run(u["corporate"], "select dispatch_id, official_grade, declared_above_official "
+                                                          "from dispatch_view where dispatch_id in (%s, %s)", (hi, ok)))
+    check("the dispatch list shows the official grade and flags the one above it",
+          dv.get(hi) == ("G12", True) and dv.get(ok) == ("G12", False))
+    check("the dispatch point is kept", run(u["corporate"], "select dispatch_point from coal_dispatches where dispatch_id = %s", (hi,)) == [("SIDING 1",)])
+
     print("\nEvidence storage")
     check("upload into own mine's folder",
           bool(run(u["inspector_a"], "insert into storage.objects (bucket_id, name) values ('evidence', %s) returning 1",

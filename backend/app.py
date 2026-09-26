@@ -808,8 +808,27 @@ def _build_chat_context(profile: dict) -> str:
                and r["submission_due"] < today.isoformat() else "")
             for r in rows))
 
+    def grade_slippage():
+        # Dispatch grade checks (migration 15): coal leaving below its declared grade.
+        if role not in ("mine_official", "inspector", "corporate_admin", "regulator", "admin"):
+            return None
+        rows = scoped(supabase.table("grade_check_view").select(
+            "mine_name, dispatch_date, mode, vehicle_ref, consignee, quantity_t, declared_grade, "
+            "assessed_grade, grade_gap, verdict, status, mine_answer")).in_(
+            "verdict", ["Grade slippage", "Lab test needed"]).order("checked_at", desc=True).limit(12).execute().data or []
+        if not rows:
+            return None
+        return ("Coal dispatch grade checks with a problem (latest; grade decided by GCV test):\n" + "\n".join(
+            f"- {r['mine_name']}: {r['mode']} {r['vehicle_ref']} to {r['consignee']} on {r['dispatch_date']}, "
+            f"{r['quantity_t']} t declared {r['declared_grade']}"
+            + (f", tested {r['assessed_grade']} ({r['grade_gap']} grade(s) below)" if r["verdict"] == "Grade slippage"
+               else ", photos suggest lower quality -- lab test pending")
+            + f"; {r['mine_answer'] + ' by mine' if r.get('mine_answer') else r['status']}"
+            for r in rows))
+
     for fn in (totals, flags, overdue_breadth, overdue_sample, repeat_failures, predictions, actions, incidents,
-               environment, production, attendance, grievances, contractor_docs, contractors_ctx, returns):
+               environment, production, attendance, grievances, contractor_docs, contractors_ctx, returns,
+               grade_slippage):
         section(fn)
 
     scope_note = ("You can see data across ALL mines."
@@ -1007,6 +1026,164 @@ def update_compliance_status(access_token: str, tracking_id: str, new_status: st
                  "mine_id": existing[0]["mine_id"]},
     )
     return result.data[0]
+
+
+# ------------------------------------------------------------
+# COAL GRADE PHOTO SCREENING (migration 15)
+#
+# The inspector photographs a dispatched load; this asks a vision model to
+# look for VISIBLE signs that the coal may be below its declared grade:
+# stones and shale mixed in, excess fines, wet coal, dull low-rank lustre.
+#
+# A photo cannot measure calorific value, and grade is defined by GCV
+# (kcal/kg). So the model is asked for warning signs and a consistency
+# call, never a grade verdict: the database decides the verdict, and
+# without a GCV test result the most a photo can produce is "Lab test
+# needed". The result is written here with the service key -- the
+# inspector's browser cannot write it -- so it cannot be edited to suit.
+# ------------------------------------------------------------
+# Groq's vision model as of September 2026 (llama-4-scout was retired on
+# 17 July 2026). Groq retires models regularly: if screening starts failing
+# with "model not found", set GROQ_VISION_MODEL on the Space to the model
+# listed at https://console.groq.com/docs/vision -- no code change needed.
+GROQ_VISION_MODEL = os.environ.get("GROQ_VISION_MODEL", "qwen/qwen3.8-27b")
+
+_GRADE_PROMPT = """You are assisting a coal-quality inspector in India. The photos show coal
+loaded for dispatch ({mode}, {vehicle}). The mine declared it as grade {grade}
+(Coal Controller's GCV bands: {band}).
+
+Grade is set by laboratory GCV, which photos cannot measure. Do NOT state a GCV.
+Look only for visible evidence:
+- stone / shale / dirt bands mixed with the coal
+- fines (dust and small particles) versus lumps
+- surface moisture
+- lustre: bright and black (higher rank) versus dull, grey or brownish (lower rank, high ash)
+- foreign material (wood, metal, plastic, boulders)
+
+Reply with ONLY a JSON object, no other text:
+{{"is_coal_load": "yes"|"no"|"unclear",
+  "stone_shale": "none"|"some"|"heavy",
+  "fines": "low"|"moderate"|"high",
+  "surface_moisture": "dry"|"damp"|"wet",
+  "lustre": "bright"|"mixed"|"dull",
+  "foreign_material": [short strings],
+  "consistent_with_declared": "yes"|"no"|"unclear",
+  "estimated_grade_range": "e.g. G10-G12, or unknown",
+  "confidence": "low"|"medium"|"high",
+  "summary": "one plain sentence for the inspector"}}
+Say "no" for consistent_with_declared only when the visible evidence clearly points to
+lower quality than {grade}. When photos are unclear, say "unclear"."""
+
+
+def _download_evidence(path: str) -> bytes:
+    """Fetch a private evidence file with the service key."""
+    return supabase.storage.from_("evidence").download(path)
+
+
+def _parse_json_reply(text: str) -> dict:
+    """The JSON object in a model reply. Reasoning models may think aloud
+    first (<think>...</think>), and that text can contain braces too, so the
+    thinking is dropped and the LAST complete JSON object wins."""
+    import re
+    text = re.sub(r"<think>.*?</think>", "", text or "", flags=re.S).strip()
+    decoder = json.JSONDecoder()
+    found = None
+    for i, ch in enumerate(text):
+        if ch == "{":
+            try:
+                obj, _ = decoder.raw_decode(text[i:])
+                if isinstance(obj, dict):
+                    found = obj
+            except ValueError:
+                continue
+    if found is None:
+        raise ValueError("no JSON object in the model reply")
+    return found
+
+
+def screen_coal_photos(access_token: str, check_id: str):
+    """Screens the photos of a grade check and stores the result on it."""
+    import base64
+    uid, profile, err = _authenticate(access_token)
+    if err:
+        return err
+    role_err = _require_role(profile, ("inspector", "corporate_admin", "admin", "mine_official", "regulator"))
+    if role_err:
+        return role_err
+    if not supabase:
+        return {"error": "Supabase not configured yet."}
+
+    rows = supabase.table("grade_check_view").select(
+        "check_id, mine_id, photo_paths, declared_grade, mode, vehicle_ref, ai_assessment, verdict"
+    ).eq("check_id", check_id).execute().data
+    if not rows:
+        return {"error": "Grade check not found."}
+    chk = rows[0]
+    scope_err = _require_own_mine(profile, chk["mine_id"], ("corporate_admin", "regulator", "admin"))
+    if scope_err:
+        return scope_err
+    if chk.get("ai_assessment"):
+        return {"assessment": chk["ai_assessment"], "verdict": chk["verdict"], "cached": True}
+    if profile["role"] not in ("inspector", "corporate_admin", "admin"):
+        return {"error": "Photo screening is run by the inspector who recorded the check."}
+    if not groq_client:
+        return {"error": "AI screening is not configured (GROQ_API_KEY missing). The check stands on its test result."}
+    if _rate_limited(f"screen:{uid}", 12, 3600):
+        return {"error": "Too many screenings this hour. Please wait a little."}
+
+    band = supabase.table("coal_grade_bands").select("gcv_min, gcv_max").eq(
+        "grade", chk["declared_grade"]).execute().data
+    band_txt = (f"{chk['declared_grade']} = {band[0]['gcv_min']}"
+                + (f"-{band[0]['gcv_max']}" if band and band[0].get("gcv_max") else "+")
+                + " kcal/kg") if band else chk["declared_grade"]
+
+    content = [{"type": "text", "text": _GRADE_PROMPT.format(
+        mode=chk.get("mode") or "dispatch", vehicle=chk.get("vehicle_ref") or "",
+        grade=chk["declared_grade"], band=band_txt)}]
+    for path in (chk.get("photo_paths") or [])[:3]:        # the model accepts a few images per request
+        try:
+            data = _download_evidence(path)
+        except Exception as e:
+            return {"error": f"Could not read photo {path}: {e}"}
+        mime = "image/png" if path.lower().endswith(".png") else "image/jpeg"
+        content.append({"type": "image_url",
+                        "image_url": {"url": f"data:{mime};base64,{base64.b64encode(data).decode()}"}})
+
+    def ask(hide_reasoning):
+        kw = {"extra_body": {"reasoning_format": "hidden"}} if hide_reasoning else {}
+        return groq_client.chat.completions.create(
+            model=GROQ_VISION_MODEL,
+            messages=[{"role": "user", "content": content}],
+            temperature=0.1,
+            max_completion_tokens=1500,
+            **kw,
+        )
+
+    try:
+        try:
+            response = ask(True)
+        except Exception as e:
+            # Not every model takes the reasoning option; ask plainly instead.
+            if "reasoning" not in str(e).lower():
+                raise
+            response = ask(False)
+        assessment = _parse_json_reply(response.choices[0].message.content)
+    except Exception as e:
+        return {"error": f"AI screening failed ({GROQ_VISION_MODEL}): {e}. "
+                         "If the model has been retired, set GROQ_VISION_MODEL on the Space to a current vision model."}
+
+    # Keep only the expected fields, so nothing unexpected is stored.
+    allowed = {"is_coal_load", "stone_shale", "fines", "surface_moisture", "lustre", "foreign_material",
+               "consistent_with_declared", "estimated_grade_range", "confidence", "summary"}
+    assessment = {k: v for k, v in assessment.items() if k in allowed}
+    if assessment.get("is_coal_load") == "no":
+        assessment["consistent_with_declared"] = "unclear"
+    now = datetime.datetime.now(datetime.timezone.utc).isoformat()
+    updated = supabase.table("grade_checks").update({
+        "ai_assessment": assessment, "ai_model": GROQ_VISION_MODEL, "ai_at": now,
+    }).eq("check_id", check_id).execute().data
+    verdict = updated[0]["verdict"] if updated else None
+    return {"assessment": assessment, "verdict": verdict, "model": GROQ_VISION_MODEL}
 
 
 # ------------------------------------------------------------
@@ -1236,6 +1413,14 @@ with gr.Blocks(title="Coal Mining Governance Platform - Backend") as demo:
         update_btn.click(update_compliance_status, inputs=[token_6, tracking_id_in, status_in, remarks_in, evidence_in],
                          outputs=update_output,
                          api_name="update_compliance_status")
+
+    with gr.Tab("Coal Grade Photo Screening"):
+        token_g = gr.Textbox(label="Supabase Access Token", type="password")
+        check_id_in = gr.Textbox(label="Grade check ID (UUID)")
+        screen_btn = gr.Button("Screen photos")
+        screen_output = gr.JSON()
+        screen_btn.click(screen_coal_photos, inputs=[token_g, check_id_in], outputs=screen_output,
+                         api_name="screen_coal_photos")
 
     with gr.Tab("Admin: Pending Signups"):
         token_7 = gr.Textbox(label="Supabase Access Token (must belong to an admin)", type="password")

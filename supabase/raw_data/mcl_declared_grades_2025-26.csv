@@ -1,0 +1,39 @@
+subsidiary,fy,sl_no,area,dispatch_point,point_type,seams,location,grade,provisional,mine_grade_for
+MCL,2025-26,1,Jagannath,JAGANNATH,Mine,Talcher II G11 (50%); Talcher III T G12 (12%); Talcher IIIB G12 (10%); Talcher IV G13 (21%); Talcher V A G15 (7%),,G12,false,JAGANNATH
+MCL,2025-26,1,Jagannath,ANANTA,Mine,Talcher II T G11 (25%); Talcher II B G11 (20.83%); Talcher III T G12 (2.92%); Talcher III B G12 (2.92%); Talcher IV G12 (4.17%); Talcher V T G14 (12.5%); Talcher V B G14 (8.33%); Talcher VI T G14 (8.33%); Talcher VI B G14 (7.92%); Talcher VII G12(P) (7.08%),,G12,true,ANANTA
+MCL,2025-26,1,Jagannath,SIDING V,Siding,Composite grade coal of Ananta OCP,,G12,true,
+MCL,2025-26,2,Bhubaneswari,BHUBANESWARI,Mine,Talcher II G12 (30.88%); Talcher III G12 (20.94%); Talcher IV G13 (14.52%); Talcher V G13 (13.07%); Talcher VI(A) G14 (5.21%); Talcher VI(B) G14 (3.4%); Talcher VII G12 (7.93%); Talcher IX G12 (2.65%); Local II G14 (1.4%),,G12,false,BHUBANESWARI
+MCL,2025-26,2,Bhubaneswari,SIDING I & II,Siding,G13 composite grade coal of Hingula OCP,From NE 0 m to 200 m,G13,false,
+MCL,2025-26,2,Bhubaneswari,SIDING I & II,Siding,"G12 composite grade coal of Bhubaneswari OCP, Jagannath OCP and Ananta OCP",From NE 200 m to 730 m,G12,false,
+MCL,2025-26,2,Bhubaneswari,SIDING III & IV,Siding,"G12 composite grade coal of Bhubaneswari, Ananta OCP",,G12,false,
+MCL,2025-26,2,Bhubaneswari,SILO PH I & II,Silo,"G12 composite grade coal of Bhubaneswari, Ananta OCP",,G12,false,
+MCL,2025-26,3,Lingaraj,LINGARAJ COMPOSITE,Mine,Talcher II G12 (24%); Talcher III G12 (12%); Talcher IVA G13 (9%); Talcher IV B G13 (4%); Talcher V G13 (14%); Talcher VIA G14 (13%); Talcher VI B G14 (10%); Talcher VII G14 (14%),,G13,false,LINGRAJ
+MCL,2025-26,3,Lingaraj,SILO I & II,Silo,G13 composite grade coal of Lingaraj OCP,,G13,false,
+MCL,2025-26,3,Lingaraj,LMGT I & II,Siding,G12 grade coal of Lingaraj OCP (Seam II & III); G12 composite grade coal of Bhubaneswari OCP,,G12,false,
+MCL,2025-26,3,Lingaraj,DEULABERA SIDING,Siding,G13 composite grade coal of Lingaraj OCP,,G13,false,
+MCL,2025-26,3,Lingaraj,ROAD SALE,Road sale,Talcher seam II and III,,G12,false,
+MCL,2025-26,4,Bharatpur,BHARATPUR,Mine,Talcher II G12 (64.67%); Talcher III G11 (10.44%); Talcher IV G12 (11.21%); Talcher V A & B G13 (13.67%),,G12,false,BHARATPUR
+MCL,2025-26,4,Bharatpur,SPUR VII,Siding,Composite grade coal of Bharatpur OCP,,G12,false,
+MCL,2025-26,4,Bharatpur,MGR RLS,MGR,Composite grade coal of Bharatpur OCP,,G12,false,
+MCL,2025-26,4,Bharatpur,SILO I & II,Silo,Composite grade coal of Bharatpur OCP,,G12,false,
+MCL,2025-26,5,Hingula,SIDING IX,Siding,G13 composite grade coal of Hingula OCP; G13 grade coal of Balaram OCP,,G13,false,HINGULA;BALRAM
+MCL,2025-26,5,Hingula,SPUR VIII,Siding,G13 composite grade coal of Hingula OCP,,G13,false,
+MCL,2025-26,6,Kaniha,KANIHA ROAD,Road sale,G12 grade coal of Kaniha OCP,,G12,false,
+MCL,2025-26,6,Kaniha,MGR,MGR,Kaniha composite,,G13,false,
+MCL,2025-26,6,Kaniha,KANIHA COMPOSITE,Mine,Talcher II Bob G12 (1%); Talcher II B1 G12 (2%); Talcher II T1-B2 G12 (20%); Talcher II T4-T2 G12 (8%); Talcher III(T) G14 (15%); Talcher III(B) G14 (32%); Talcher IV(M) G12 (13%); Talcher IV(B) G13 (9%),,G13,false,KANIHA
+MCL,2025-26,7,Lakhanpur,BOCM III,Siding,G14 grade coal of ILBL OCP,,G14,false,LAKHANPUR;BELPAHAR;LILARI
+MCL,2025-26,7,Lakhanpur,BOCM VII,Siding,G14 grade coal of ILBL OCP,,G14,false,
+MCL,2025-26,7,Lakhanpur,CHHARLA,Siding,G14 grade coal of ILBL OCP,,G14,false,
+MCL,2025-26,7,Lakhanpur,BOCM I & II,Siding,G14 grade coal of ILBL OCP,,G14,false,
+MCL,2025-26,8,IB Valley,LAJKURA COMPOSITE,Mine,Lajkura Top & Bottom G13 (57.78%); Parkhani G13 (14.44%); Local-2 G14(P) (17.78%); Local-3 G13 (10%),,G13,true,LAJKURA
+MCL,2025-26,8,IB Valley,LOCM III,Siding,G14 grade coal of Samleswari OCP; G14 grade coal of ILBL OCP; G14 grade coal of HBM,From East 0 m to 400 m,G14,false,HIRAKHAND BUNDIA INCLINE
+MCL,2025-26,8,IB Valley,LOCM III,Siding,G13(P) composite grade coal of Lajkura OCP; G13 grade coal of Orient Mine no 1 & 2,From East 401 m to 750 m,G13,true,MINE NO. 1&2
+MCL,2025-26,8,IB Valley,LOCM I,Siding,G14 grade coal of Samleswari OCP,,G14,false,SAMALESWARI
+MCL,2025-26,8,IB Valley,RLS I & II,Siding,G14 grade coal of Samleswari OCP,,G14,false,
+MCL,2025-26,9,Basundhara,KULDA OCP,Mine,Lajkura I G14 (12.7%); Lajkura II G13 (31%); Lajkura III G13 (4.5%); Lajkura IV G12 (14.4%); Rampur I G13 (3%); Rampur II G12 (3%); Rampur III G11 (8.4%); Rampur IV G14 (19%); Rampur V G14 (4%),,G13,false,KULDA
+MCL,2025-26,9,Basundhara,KANIKA,Siding,G14 grade coal of Garjanbahal OCP,210-650 m from east,G14,false,
+MCL,2025-26,9,Basundhara,KANIKA,Siding,G13 grade coal of Kulda OCP,0-210 m from east,G13,false,
+MCL,2025-26,9,Basundhara,GARJANBAHAL,Mine,Composite of Lajkura and Rampur seams,,G14,false,GARJANBAHAL
+MCL,2025-26,9,Basundhara,LAIKERA,Siding,G13 composite grade coal of Kulda OCP (60%); G14 grade coal of Garjanbahal OCP (40%),,G13,false,
+MCL,2025-26,10,Mahalaxmi,SARDEGA I & II,Siding,G11 grade coal of Siarmal OCP,,G11,false,
+MCL,2025-26,10,Mahalaxmi,TRH 1 & 2 of RLS bunker Sardega siding,Siding,G11 grade coal of Siarmal OCP,,G11,false,

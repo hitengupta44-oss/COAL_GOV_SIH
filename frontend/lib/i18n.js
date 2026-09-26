@@ -22,6 +22,7 @@ const STRINGS = {
   "nav.actions": ["Corrective actions", "सुधारात्मक कार्रवाई"],
   "nav.operations": ["Production & environment", "उत्पादन और पर्यावरण"],
   "nav.returns": ["Statutory returns", "वैधानिक रिटर्न"],
+  "nav.logistics": ["Dispatch & coal grade", "प्रेषण और कोयला ग्रेड"],
   "nav.audit": ["Audit trail", "ऑडिट ट्रेल"],
   "nav.contractors": ["Contractors", "ठेकेदार"],
   "nav.mineOps": ["Mine operations", "खदान संचालन"],

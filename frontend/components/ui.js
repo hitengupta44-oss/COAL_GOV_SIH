@@ -15,6 +15,9 @@ export const SEVERITY = {
   Expired: "high", "Under Review": "medium",
   "Action Taken": "medium", Reopened: "high", Reported: "high", "Under Investigation": "medium",
   Draft: null, Submitted: "medium", Returned: "high", Approved: "low",
+  "Grade slippage": "critical", "Lab test needed": "high", "Matches declared grade": "low",
+  "Better than declared": "low", "Visual check only": null,
+  "Accepted by mine": "medium", "Disputed by mine": "high",
 };
 
 const sevColor = (k) => (k ? `var(--sev-${k})` : "var(--line-strong)");
