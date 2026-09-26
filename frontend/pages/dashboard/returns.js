@@ -178,6 +178,7 @@ function Prepare({ mineId, onCreated }) {
       </div>
       <p style={{ fontSize: 13.5, color: "var(--ink-soft)", marginTop: -4 }}>
         Covers {iso(start)} to {iso(end)}. The figures are drawn from this mine&apos;s records; review them before submitting.
+        Each month&apos;s returns are also prepared automatically on the 1st, due by the 7th.
       </p>
       <Button onClick={create} disabled={busy}>{busy ? "Preparing" : "Prepare draft"}</Button>
     </Card>
@@ -215,10 +216,20 @@ function ReturnDetail({ ret, role, me, onChanged, onClose }) {
       severity={ret.status}
       action={<span><Badge>{ret.status}</Badge> <Button variant="quiet" onClick={onClose} style={{ marginLeft: 12 }}>Close</Button></span>}>
       <p style={{ fontSize: 14, color: "var(--ink-soft)", marginTop: -4 }}>
-        {ret.mine_name}, {ret.state}. Prepared by {ret.prepared_by_name || "—"} on {fmt(ret.prepared_at)}
+        {ret.mine_name}, {ret.state}.{" "}
+        {ret.auto_prepared ? <>Prepared automatically on {fmt(ret.prepared_at)}</>
+          : <>Prepared by {ret.prepared_by_name || "—"} on {fmt(ret.prepared_at)}</>}
         {ret.submitted_at && <>; submitted {fmt(ret.submitted_at)}</>}
         {ret.reviewed_at && <>; {ret.status === "Approved" ? "approved" : "reviewed"} by {ret.reviewed_by_name} on {fmt(ret.reviewed_at)}</>}.
       </p>
+      {["Draft", "Returned"].includes(ret.status) && ret.submission_due && (
+        <Notice tone={ret.submission_due < new Date().toISOString().slice(0, 10) ? "error" : "info"}>
+          {ret.submission_due < new Date().toISOString().slice(0, 10)
+            ? <>Overdue: this return was due by <strong>{ret.submission_due}</strong>.</>
+            : <>Submit by <strong>{ret.submission_due}</strong>.</>}
+          {ret.auto_prepared && " The figures were drawn from the records automatically; review them, add remarks if needed, and submit."}
+        </Notice>
+      )}
       {ret.status === "Returned" && ret.review_note && <Notice tone="error">Sent back: {ret.review_note}</Notice>}
       {err && <Notice tone="error">{err}</Notice>}
 
@@ -330,7 +341,13 @@ function ReturnsContent() {
             { key: "return_type", label: "Return" },
             { key: "period", label: "Period", width: 170, nowrap: true,
               render: (r) => r.return_type.startsWith("Quarterly") ? `${r.period_start} – ${r.period_end}` : monthLabel(r.period_start) },
-            { key: "submitted_at", label: "Submitted", width: 170, nowrap: true, render: (r) => fmt(r.submitted_at) },
+            { key: "submitted_at", label: "Submitted", width: 190, nowrap: true, render: (r) => r.submitted_at
+                ? fmt(r.submitted_at)
+                : r.submission_due && r.submission_due < new Date().toISOString().slice(0, 10)
+                  ? <strong style={{ color: "var(--sev-critical)" }}>Overdue since {r.submission_due}</strong>
+                  : <span style={{ color: "var(--ink-soft)" }}>Due by {r.submission_due || "—"}</span> },
+            { key: "auto", label: "", width: 120, nowrap: true, render: (r) => r.auto_prepared
+                ? <span style={{ fontSize: 12.5, color: "var(--ink-faint)" }}>Auto-prepared</span> : null },
             { key: "status", label: "Status", width: 120, render: (r) => <Badge>{r.status}</Badge> },
             { key: "open", label: "", width: 90,
               render: (r) => <Button variant="secondary" onClick={() => { setOpenId(r.return_id); window.scrollTo({ top: 0, behavior: "smooth" }); }}>Open</Button> },

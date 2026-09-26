@@ -6,6 +6,7 @@ import MineMap from "../../components/MineMap";
 import ReportPanel from "../../components/ReportPanel";
 import AlertsPanel from "../../components/AlertsPanel";
 import PredictionsPanel from "../../components/PredictionsPanel";
+import ContractorApprovals from "../../components/ContractorApprovals";
 import { PhotoInput, EvidenceLink } from "../../components/Evidence";
 import { uploadEvidence } from "../../lib/evidence";
 import { Card, StatStrip, Table, Badge, Button, Notice, Field } from "../../components/ui";
@@ -27,12 +28,25 @@ function ManagerContent() {
   const [flags, setFlags] = useState(null);
   const [flagDraft, setFlagDraft] = useState(null);   // flag being answered
   const [flagNote, setFlagNote] = useState("");
+  const [record, setRecord] = useState({});            // item_id -> 12-month track record
+  const [compView, setCompView] = useState("open");     // "open" | "history"
   const [completing, setCompleting] = useState(null);   // obligation being marked Completed
   const [proof, setProof] = useState(null);
   const [proofNote, setProofNote] = useState("");
 
+  // How each obligation has gone over the last 12 months. An obligation
+  // missed again and again is a different problem from a one-off slip,
+  // and the mine official should see which is which.
+  const loadRecord = async () => {
+    if (!profile?.mine_id) return;
+    const { data } = await supabase.from("obligation_track_record_view")
+      .select("item_id, periods, missed, miss_rate").eq("mine_id", profile.mine_id);
+    setRecord(Object.fromEntries((data || []).map((r) => [r.item_id, r])));
+  };
+
   const loadCompliance = async () => {
     if (!profile?.mine_id) return;
+    loadRecord();
     const token = await getAccessToken();
     const c = await getComplianceStatus(token, profile.mine_id);
     if (c?.error) setError(c.error);
@@ -175,6 +189,15 @@ function ManagerContent() {
     setCompleting(null); setProof(null); setProofNote("");
   };
 
+  const isRepeat = (r) => r && r.missed >= 2 && Number(r.miss_rate) >= 0.5;
+  const repeatCount = Object.values(record).filter(isRepeat).length;
+  const openRows = (compliance || [])
+    .filter((c) => c.status === "Overdue" || c.status === "Pending")
+    .sort((a, b) => String(a.due_date || "9999").localeCompare(String(b.due_date || "9999")));
+  const historyRows = (compliance || [])
+    .filter((c) => c.status === "Completed" || c.status === "Not Applicable")
+    .sort((a, b) => String(b.due_date || "").localeCompare(String(a.due_date || "")));
+
   const overdue = (compliance || []).filter((c) => c.status === "Overdue").length;
   const pending = (compliance || []).filter((c) => c.status === "Pending").length;
   // Mine officials can now flag a contractor at their own site. They are
@@ -205,6 +228,8 @@ function ManagerContent() {
         items={[
           { label: "Overdue obligations", value: overdue, tone: overdue ? "critical" : null },
           { label: "Pending obligations", value: pending, tone: pending ? "medium" : null },
+          { label: "Missed again and again", value: repeatCount, tone: repeatCount ? "high" : null,
+            note: "Obligations missed in most of the last 12 months" },
           { label: "Open grievances", value: openGrievances, tone: openGrievances ? "high" : null,
             note: overdueGrievances ? `${overdueGrievances} past deadline` : undefined },
         ]}
@@ -266,7 +291,12 @@ function ManagerContent() {
 
       <PredictionsPanel />
 
-      <Card title="Statutory compliance">
+      <Card title="Statutory compliance" action={
+        <div className="segmented" role="group" aria-label="Show">
+          <button aria-pressed={compView === "open"} onClick={() => setCompView("open")}>To do</button>
+          <button aria-pressed={compView === "history"} onClick={() => setCompView("history")}>History</button>
+        </div>
+      }>
         {completing && (
           <div style={{ background: "var(--primary-wash)", borderLeft: "3px solid var(--primary)",
                         padding: 14, marginBottom: 14, borderRadius: 3 }}>
@@ -294,6 +324,16 @@ function ManagerContent() {
               render: (r) => r.statutory_compliance_items?.category || "—" },
             { key: "due", label: "Due", width: 110, nowrap: true, render: (r) => r.due_date || "—" },
             { key: "status", label: "Status", width: 110, render: (r) => <Badge>{r.status}</Badge> },
+            { key: "record", label: "Last 12 months", width: 140, render: (r) => {
+                const t = record[r.item_id];
+                if (!t || !t.periods) return <span style={{ color: "var(--ink-faint)" }}>No history</span>;
+                return (
+                  <span style={{ fontSize: 13, color: isRepeat(t) ? "var(--sev-high)" : t.missed ? "var(--ink)" : "var(--sev-low)" }}>
+                    {t.missed ? `Missed ${t.missed} of ${t.periods}` : `On time ${t.periods} of ${t.periods}`}
+                    {isRepeat(t) && <div style={{ fontWeight: 600 }}>Repeated failure</div>}
+                  </span>
+                );
+              } },
             { key: "evidence", label: "Proof", width: 70, render: (r) => <EvidenceLink path={r.evidence_url} /> },
             { key: "set", label: "Change to", width: 150,
               render: (r) => (
@@ -306,10 +346,10 @@ function ManagerContent() {
                 </select>
               ) },
           ]}
-          rows={compliance || []}
-          countLabel="obligations"
+          rows={compView === "open" ? openRows : historyRows}
+          countLabel={compView === "open" ? "open obligations" : "past occurrences"}
           severityOf={(r) => r.status}
-          empty="No compliance items recorded for this mine."
+          empty={compView === "open" ? "Nothing open: every obligation is done for this cycle." : "No past occurrences recorded yet."}
         />
       </Card>
 
@@ -364,6 +404,8 @@ function ManagerContent() {
           empty="No grievances filed at this mine."
         />
       </Card>
+
+      <ContractorApprovals />
 
       <Card title="Contractors on site">
         <Table

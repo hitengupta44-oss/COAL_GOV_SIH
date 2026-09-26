@@ -36,7 +36,8 @@ function AddContractor({ profile, onAdded }) {
     });
     setBusy(false);
     if (error) return setMsg({ tone: "error", text: error.message });
-    setMsg({ tone: "success", text: `${f.contractor_name} added. Record their documents next.` });
+    setMsg({ tone: "success", text: `${f.contractor_name} added and sent for approval. Record their four core `
+      + "documents next: the mine official cannot approve until they are on record and in date." });
     setF(blank);
     onAdded();
   };
@@ -140,6 +141,17 @@ function ContractorContent() {
 
   useEffect(() => { load(); }, [profile?.subsidiary_id]);
 
+  // A rejected contractor goes back into review once the problem is fixed.
+  const resubmit = async (c) => {
+    setBusyId(c.contractor_id); setError(null);
+    const { data, error: err } = await supabase.from("contractors").update({ status: "Under Review" })
+      .eq("contractor_id", c.contractor_id).select();
+    setBusyId(null);
+    if (err) return setError(`Could not resubmit: ${err.message}`);
+    if (!data?.length) return setError("Not saved. You can only resubmit contractors at your own mine.");
+    load();
+  };
+
   const toggleBlacklist = async (id, current) => {
     setBusyId(id); setError(null);
     const { data, error: err } = await supabase
@@ -161,6 +173,8 @@ function ContractorContent() {
   // contract state when colouring the row.
   const rowState = (c) =>
     c.blacklisted ? "Critical"
+      : c.status === "Rejected" ? "High"
+      : c.status === "Under Review" ? "Pending"
       : c.expired_documents > 0 ? "Critical"
       : c.contract_state === "Contract expired" ? "High"
       : c.contract_state === "Expiring soon" ? "Medium"
@@ -173,6 +187,8 @@ function ContractorContent() {
       <StatStrip
         items={[
           { label: "Contracts in force", value: list.filter((c) => c.contract_state === "In force").length },
+          { label: "Awaiting approval", value: list.filter((c) => c.status === "Under Review").length,
+            tone: list.some((c) => c.status === "Under Review") ? "medium" : null },
           { label: "Contracts ending within 60 days", value: expiringContracts, tone: expiringContracts ? "medium" : null },
           { label: "Lapsed documents", value: expiredDocs, tone: expiredDocs ? "critical" : null, note: "Blocks work on site" },
           { label: "Blacklisted", value: blacklisted, tone: blacklisted ? "critical" : null },
@@ -220,11 +236,26 @@ function ContractorContent() {
             { key: "contractor_name", label: "Contractor", render: (c) => <strong>{c.contractor_name}</strong> },
             { key: "contract_type", label: "Scope" },
             { key: "contract_end", label: "Ends", width: 115, nowrap: true },
-            { key: "contract_state", label: "Contract", width: 140, nowrap: true },
+            { key: "contract_state", label: "Contract", width: 160, render: (c) => (
+                <>
+                  <span style={{ whiteSpace: "nowrap" }}>{c.contract_state}</span>
+                  {c.status === "Rejected" && c.review_note && (
+                    <div style={{ fontSize: 12.5, color: "var(--sev-high)" }}>
+                      {c.reviewed_by_name ? `${c.reviewed_by_name}: ` : ""}{c.review_note}
+                    </div>
+                  )}
+                </>
+              ) },
+            { key: "document_gaps", label: "Core documents", width: 190, render: (c) => (c.document_gaps || []).length
+                ? <span style={{ fontSize: 13, color: "var(--sev-high)" }}>Missing or lapsed: {c.document_gaps.join(", ")}</span>
+                : <span style={{ fontSize: 13, color: "var(--sev-low)" }}>All in date</span> },
             { key: "expired_documents", label: "Lapsed docs", width: 110, align: "right",
               render: (c) => c.expired_documents || 0 },
             { key: "act", label: "", width: 130,
-              render: (c) => (
+              render: (c) => c.status === "Rejected" ? (
+                <Button variant="secondary" disabled={busyId === c.contractor_id}
+                  onClick={() => resubmit(c)}>Resubmit</Button>
+              ) : (
                 <Button variant="secondary" disabled={busyId === c.contractor_id}
                   onClick={() => toggleBlacklist(c.contractor_id, c.blacklisted)}>
                   {c.blacklisted ? "Remove flag" : "Blacklist"}

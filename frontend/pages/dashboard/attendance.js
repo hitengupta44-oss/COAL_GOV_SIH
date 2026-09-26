@@ -8,6 +8,7 @@ import { useT } from "../../lib/i18n";
 import { supabase } from "../../lib/supabase";
 import { getPosition, isOnline } from "../../lib/geo";
 import { enqueue } from "../../lib/offlineQueue";
+import CrewAttendance from "../../components/CrewAttendance";
 
 // Personal, geo-fenced attendance.
 //
@@ -236,6 +237,7 @@ function AttendanceContent() {
   return (
     <Layout title={t("att.title")} subtitle="">
       <MyAttendance />
+      {["contractor_manager", "mine_official"].includes(profile?.role) && <CrewAttendance />}
       {profile?.role === "mine_official" && <MineRoster />}
     </Layout>
   );

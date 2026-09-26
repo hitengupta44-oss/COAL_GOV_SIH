@@ -376,6 +376,107 @@ def main():
           refused(u["contractor_a"], "insert into contractor_compliance (contractor_id, document_type) values (%s,'Insurance') "
                                      "returning 1", (bid,)))
 
+    print("\nRecurring obligations")
+    admin("insert into statutory_compliance_items (regulation_source, category, requirement_summary, frequency) "
+          "values ('CMR 2017 weekly test','Safety','Weekly gas test','Weekly')")
+    wk = admin("select max(item_id) from statutory_compliance_items", fetch=True)[0][0]
+    t1 = admin("insert into compliance_tracking (mine_id, item_id, due_date, status) "
+               "values (%s,%s,current_date + 2,'Pending') returning tracking_id", (A, wk), fetch=True)[0][0]
+    run(u["official_a"], "update compliance_tracking set status='Completed', completed_date=current_date "
+                         "where tracking_id=%s returning 1", (t1,))
+    nxt = admin("select due_date - current_date, status from compliance_tracking "
+                "where mine_id=%s and item_id=%s and due_date > current_date + 2", (A, wk), fetch=True)
+    check("completing an occurrence schedules the next one", nxt == [(9, "Pending")])
+    n_before = admin("select count(*) from compliance_tracking where mine_id=%s and item_id=%s", (A, wk), fetch=True)[0][0]
+    old = admin("insert into compliance_tracking (mine_id, item_id, due_date, status) "
+                "values (%s,%s,current_date - 20,'Overdue') returning tracking_id", (A, wk), fetch=True)[0][0]
+    run(u["official_a"], "update compliance_tracking set status='Completed', completed_date=current_date "
+                         "where tracking_id=%s returning 1", (old,))
+    n_after = admin("select count(*) from compliance_tracking where mine_id=%s and item_id=%s", (A, wk), fetch=True)[0][0]
+    check("completing an old occurrence does not push the schedule ahead", n_after == n_before + 1)
+    admin("insert into compliance_tracking (mine_id, item_id, due_date, status) values (%s,%s,current_date - 3,'Pending')", (B, wk))
+    res = admin("select roll_forward_obligations()", fetch=True)[0][0]
+    st = admin("select status from compliance_tracking where mine_id=%s and item_id=%s and due_date=current_date - 3", (B, wk), fetch=True)
+    check("scheduler marks past-due Pending items Overdue", st == [("Overdue",)] and res["marked_overdue"] >= 1)
+    nb = admin("select count(*) from compliance_tracking where mine_id=%s and item_id=%s and due_date >= current_date", (B, wk), fetch=True)[0][0]
+    check("scheduler starts the next cycle once a date has passed", nb == 1)
+    again = admin("select roll_forward_obligations()", fetch=True)[0][0]
+    check("re-running the scheduler creates nothing twice", again["occurrences_created"] == 0)
+    check("users cannot run the scheduler", refused(u["official_a"], "select roll_forward_obligations()"))
+    rec = run(u["official_a"], "select periods, missed from obligation_track_record_view where mine_id=%s and item_id=%s", (A, wk))
+    check("track record counts a late completion as missed", rec == [(1, 1)])
+    check("other mines' track records are hidden", run(u["official_a"],
+          "select 1 from obligation_track_record_view where mine_id=%s", (B,)) == [])
+
+    print("\nContractor onboarding approval")
+    c1 = run(u["contractor_a"], "insert into contractors (contractor_name, mine_id, status) "
+                                "values ('Delta Drilling', %s, 'Active') returning contractor_id, status, created_by", (A,))[0]
+    check("a new contractor starts Under Review whatever the request says", c1[1] == "Under Review" and c1[2] == p["contractor_a"])
+    cid1 = c1[0]
+    check("the mine official is alerted to approve it", admin(
+        "select count(*) from alerts where source_table='contractor_approvals' and source_id=%s",
+        (f"{cid1}:review",), fetch=True)[0][0] == 1)
+    cu = "update contractors set {} where contractor_id=%s returning status"
+    check("the contractor manager cannot approve", refused(u["contractor_a"], cu.format("status='Active'"), (cid1,)))
+    check("approval needs the four core documents", refused(u["official_a"], cu.format("status='Active'"), (cid1,), "missing"))
+    check("rejection needs a reason", refused(u["official_a"], cu.format("status='Rejected'"), (cid1,), "why"))
+    for d in ["Safety training certificate", "Workmen compensation insurance", "Contract labour licence", "PF registration"]:
+        run(u["contractor_a"], "insert into contractor_compliance (contractor_id, document_type, valid_until) "
+                               "values (%s, %s, current_date + 200) returning 1", (cid1, d))
+    check("the mine official approves once documents are valid",
+          run(u["official_a"], cu.format("status='Active'"), (cid1,)) == [("Active",)])
+    open_ap = admin("select count(*) from alerts where source_table='contractor_approvals' "
+                    "and split_part(source_id, ':', 1)=%s and status='Open'", (str(cid1),), fetch=True)[0][0]
+    check("approving closes the approval alert", open_ap == 0)
+    c2 = run(u["official_a"], "insert into contractors (contractor_name, mine_id) values ('Echo Explosives', %s) "
+                              "returning contractor_id", (A,))[0][0]
+    check("whoever added a contractor cannot approve it",
+          refused(u["official_a"], cu.format("status='Rejected', review_note='x'"), (c2,), "someone else"))
+    run(u["corporate"], cu.format("status='Rejected', review_note='No blasting licence'"), (c2,))
+    check("a rejection goes back to the contractor manager", admin(
+        "select count(*) from alerts where source_table='contractor_approvals' and source_id=%s and recipient_role='contractor_manager'",
+        (f"{c2}:rejected",), fetch=True)[0][0] == 1)
+    check("a rejected contractor can be resubmitted",
+          run(u["contractor_a"], cu.format("status='Under Review'"), (c2,)) == [("Under Review",)])
+
+    print("\nCrew attendance")
+    ci = "insert into contractor_crew_attendance (contractor_id, shift, headcount, latitude, longitude) values (%s,%s,%s,%s,%s) " \
+         "returning within_geofence, documents_lapsed, mine_id"
+    r1 = run(u["contractor_a"], ci, (cid1, "A", 24, 23.805, 86.405))
+    check("crew recorded for an approved contractor, geo-fence checked", r1 == [(True, False, A)])
+    check("a contractor under review cannot be recorded on site",
+          refused(u["contractor_a"], ci, (c2, "A", 5, 23.8, 86.4), "not approved"))
+    check("a future date is refused", refused(u["contractor_a"],
+          "insert into contractor_crew_attendance (contractor_id, attendance_date, shift, headcount) "
+          "values (%s, current_date + 3, 'B', 5) returning 1", (cid1,), "future"))
+    admin("update contractor_compliance set valid_until = current_date - 1 "
+          "where contractor_id=%s and document_type='Safety training certificate'", (cid1,))
+    r2 = run(u["contractor_a"], ci, (cid1, "B", 18, 23.805, 86.405))
+    check("a crew under a lapsed document is flagged", r2 and r2[0][1] is True)
+    check("and the mine official is alerted at once", admin(
+        "select count(*) from alerts where source_table='contractor_crew_attendance'", fetch=True)[0][0] >= 1)
+    run(u["official_a"], cu.format("blacklisted=true"), (cid1,))
+    check("a blacklisted contractor cannot be recorded on site",
+          refused(u["contractor_a"], ci, (cid1, "C", 5, 23.8, 86.4), "blacklisted"))
+    check("workers cannot read crew records", run(u["worker_a"], "select 1 from contractor_crew_attendance") == [])
+    check("another mine cannot read them", run(u["official_b"], "select 1 from contractor_crew_attendance") == [])
+
+    print("\nAutomatic returns")
+    n = admin("select auto_prepare_returns()", fetch=True)[0][0]
+    check("last month's returns prepared for every mine with an official", n >= 4)
+    check("running it again prepares nothing twice", admin("select auto_prepare_returns()", fetch=True)[0][0] == 0)
+    ar = run(u["official_a"], "select return_id, status, auto_prepared, snapshot ? 'contract_labour' from statutory_return_view "
+                              "where auto_prepared and mine_id=%s and return_type='Monthly Safety & Compliance Return'", (A,))
+    check("the official sees the auto-prepared draft with contract labour figures", ar and ar[0][1:] == ("Draft", True, True))
+    check("the official can submit it", run(u["official_a"], "update statutory_returns set status='Submitted' "
+          "where return_id=%s returning status", (ar[0][0],)) == [("Submitted",)])
+    check("users cannot trigger preparation", refused(u["official_a"], "select auto_prepare_returns()"))
+
+    print("\nRate limiting")
+    hits = [admin("select hit_rate_limit('test-key', 2, 60)", fetch=True)[0][0] for _ in range(3)]
+    check("the third call inside the window is limited", hits == [False, False, True])
+    check("users cannot call the rate limiter", refused(u["worker_a"], "select hit_rate_limit('x', 1, 60)"))
+
     print("\nEvidence storage")
     check("upload into own mine's folder",
           bool(run(u["inspector_a"], "insert into storage.objects (bucket_id, name) values ('evidence', %s) returning 1",

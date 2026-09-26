@@ -7,6 +7,7 @@ import ReportPanel from "../../components/ReportPanel";
 import GrievanceOverview from "../../components/GrievanceOverview";
 import AlertsPanel from "../../components/AlertsPanel";
 import PredictionsPanel from "../../components/PredictionsPanel";
+import ContractorApprovals from "../../components/ContractorApprovals";
 import Link from "next/link";
 import { supabase } from "../../lib/supabase";
 import { Card, StatStrip, Table, Badge, Notice, Empty } from "../../components/ui";
@@ -121,6 +122,8 @@ function CorporateContent() {
       </Card>
 
       <PredictionsPanel wide subsidiaryId={subId} />
+
+      <ContractorApprovals wide />
 
       <GrievanceOverview mode="corporate" />
 

@@ -15,7 +15,8 @@ Deploy in this order. Each step depends on the one before it.
    `schema.sql`, `migration_02_workflow.sql`, `migration_03_alerts.sql`,
    `migration_04_view_security.sql`, `migration_05_flag_response.sql`,
    `migration_06_rls_hardening.sql`, `migration_07_field_operations.sql`,
-   `migration_08_returns_and_audit_chain.sql`, `migration_09_predictions.sql`.
+   `migration_08_returns_and_audit_chain.sql`, `migration_09_predictions.sql`,
+   `migration_10_governance_completion.sql`.
    Every migration is safe to re-run. Migration 07 also creates the private
    `evidence` storage bucket and adds the `alerts` table to Realtime.
 3. Go to **Settings → API** and copy three values you'll need later:
@@ -37,8 +38,10 @@ python load_seed_data.py            # mines, production, accidents
 python seed_compliance_tracking.py  # compliance checklist rows
 python seed_demo_users.py           # demo logins for the judges
 python seed_workflow_data.py        # contractor documents, grievance deadlines
+python seed_compliance_history.py   # 6 months of past occurrences per obligation
 python seed_field_operations.py     # production, environment, attendance,
-                                    # incidents, corrective actions, returns
+                                    # incidents, corrective actions, returns,
+                                    # demo contractors and crew attendance
 python risk_scoring_job.py          # risk flags
 python predictive_job.py            # predictions + early warnings
 python alerts_engine.py             # alerts and escalation
@@ -145,11 +148,15 @@ that touches `supabase/`.
 
 For a project already running `schema.sql` + migrations 02–05:
 
-1. **Supabase SQL Editor:** run migrations `06`, `07`, `08`, `09` in order.
+1. **Supabase SQL Editor:** run migrations `06`, `07`, `08`, `09`, `10` in order.
    Existing audit entries are chained automatically by migration 08.
 2. **Seed the new modules** (optional but recommended for demos):
-   `python seed_field_operations.py`, then `risk_scoring_job.py`,
-   `predictive_job.py`, `alerts_engine.py`.
+   `python seed_compliance_history.py`, `python seed_field_operations.py`, then
+   `risk_scoring_job.py`, `predictive_job.py`, `alerts_engine.py`.
+
+For a project already on migration 09, run only `migration_10_governance_completion.sql`,
+then `seed_compliance_history.py`, `seed_field_operations.py` (it adds only the new
+contractor and crew data), and the three jobs.
 3. **Backend:** push the new `backend/app.py` to the Space. No new secrets.
 4. **Frontend:** redeploy on Vercel. No new variables.
 5. **Scheduler:** add the Actions secrets from step 5.

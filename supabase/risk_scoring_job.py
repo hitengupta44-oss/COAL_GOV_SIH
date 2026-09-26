@@ -72,6 +72,7 @@ enough real (non-synthetic) history to justify it.
 
 import os
 import math
+import textwrap
 import pandas as pd
 from supabase import create_client, Client
 from credentials import get_supabase_credentials, get_groq_key
@@ -95,7 +96,8 @@ NAAQS_ANNUAL_LIMITS = {"pm10_annual_avg": 60, "pm25_annual_avg": 40, "so2_annual
 
 
 OWN_FLAG_TYPES = ["Anomalous Accident Rate", "Recurring Violation", "Compliance Gap",
-                  "Environmental Threshold Breach", "Operational Anomaly"]
+                  "Environmental Threshold Breach", "Operational Anomaly",
+                  "Recurring Compliance Failure"]
 
 
 def clamp01(x):
@@ -337,6 +339,54 @@ def compute_operational_anomaly_flags():
 
 
 # ------------------------------------------------------------
+# Flag 6: Recurring Compliance Failure
+#
+# The same statutory obligation missed again and again at the same mine --
+# a systemic failure, which a one-off lapse is not. Measured over the last
+# 12 months from obligation_track_record_view (migration 10): an obligation
+# is "repeatedly missed" when at least two occurrences were missed AND at
+# least half of all its occurrences were.
+#
+# A handful of repeats is common across the country, so -- like the
+# compliance-gap flag -- a mine is flagged when its count of repeatedly
+# missed obligations stands out from its peers (more than one standard
+# deviation above the mean), or reaches five outright.
+# ------------------------------------------------------------
+def compute_recurring_compliance_failure_flags():
+    try:
+        rows = fetch_all(lambda: supabase.table("obligation_track_record_view").select(
+            "mine_id, requirement_summary, frequency, periods, missed, miss_rate"))
+    except Exception as e:
+        print(f"  obligation_track_record_view unavailable ({e}); run migration 10")
+        return []
+    if not rows:
+        return []
+    df = pd.DataFrame(rows)
+    df["repeat"] = (df["missed"] >= 2) & (df["miss_rate"].astype(float) >= 0.5)
+    per_mine = df.groupby("mine_id")["repeat"].sum()
+    mean, std = per_mine.mean(), per_mine.std(ddof=0)
+
+    flags = []
+    for mine_id, n in per_mine.items():
+        n = int(n)
+        z = (n - mean) / std if std else 0.0
+        if n >= 2 and (z > 1.0 or n >= 5):
+            worst = (df[(df["mine_id"] == mine_id) & df["repeat"]]
+                     .sort_values(["miss_rate", "missed"], ascending=False).head(3))
+            flags.append({
+                "mine_id": mine_id,
+                "flag_type": "Recurring Compliance Failure",
+                "risk_score": float(round(clamp01(0.4 + 0.1 * n), 2)),
+                "stats": {"repeatedly_missed_obligations": n, "national_mean": round(float(mean), 2),
+                          "z_score": round(float(z), 2),
+                          "worst": [f"{textwrap.shorten(r.requirement_summary, 80, placeholder='…')} "
+                                    f"(missed {int(r.missed)} of {int(r.periods)})"
+                                    for r in worst.itertuples()]},
+            })
+    return flags
+
+
+# ------------------------------------------------------------
 # Explanations
 # ------------------------------------------------------------
 def rule_based_explanation(flag):
@@ -359,6 +409,9 @@ def rule_based_explanation(flag):
         return (f"{s['state']} has monitored cities (e.g. {', '.join(s['breaching_cities_sample'])}) "
                 f"exceeding CPCB annual limits for {', '.join(s['pollutants_breached'])}. "
                 f"State-level proxy, not a mine-specific reading.")
+    if t == "Recurring Compliance Failure":
+        return (f"{s['repeatedly_missed_obligations']} statutory obligations missed again and again in the last "
+                f"12 months (national average {s['national_mean']}): " + "; ".join(s["worst"]) + ".")
     if t == "Operational Anomaly":
         bits = []
         if s.get("anomalous_production_days"):
@@ -407,8 +460,9 @@ def main():
         + compute_compliance_gap_flags()
         + compute_environmental_breach_flags()
         + compute_operational_anomaly_flags()
+        + compute_recurring_compliance_failure_flags()
     )
-    print(f"  {len(all_flags)} raw flags computed across all 5 flag types")
+    print(f"  {len(all_flags)} raw flags computed across all 6 flag types")
 
     rows = []
     for flag in all_flags:

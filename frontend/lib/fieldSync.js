@@ -27,6 +27,15 @@ export function syncHandlers({ getAccessToken, profile }) {
 
     grievance: (row) => insert("grievances", row),
 
+    // Crew attendance recorded offline: same row, sent as an upsert so a
+    // re-sent record for the same shift replaces rather than duplicates.
+    crew: async (row) => {
+      const { data, error } = await supabase.from("contractor_crew_attendance")
+        .upsert(row, { onConflict: "contractor_id,attendance_date,shift" }).select();
+      if (error) return { error: error.message };
+      return data?.length ? {} : { error: "Rejected by the database." };
+    },
+
     incident: async (p) => {
       const { photoBlob, ...row } = p;
       if (photoBlob) row.photo_url = await uploadEvidence(row.mine_id, "incidents", photoBlob);

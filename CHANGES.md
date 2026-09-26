@@ -1,5 +1,30 @@
 # Changes since the GitHub version
 
+## Round 2 — closing the partly-done items (migration 10)
+
+| PS asks for | Was | Now |
+|---|---|---|
+| Recurring compliance failures | Undetectable: each obligation had one occurrence and nothing created the next | Obligations **recur on their statutory cycle**; completing one schedules the next, missed dates turn Overdue automatically; each obligation shows its 12-month track record; new **Recurring Compliance Failure** risk flag (peer-relative) |
+| GIS mapping | Mines coloured by risk only | Switchable layers: risk heatmap, open findings (late / off-site marked), incidents, off-site check-ins linked to their mine, the mine's own geo-fence |
+| Statutory report generation | Returns prepared by hand | Prepared **automatically** each month (quarterly for environment) for every mine; due by the 7th; reminders and escalation when late |
+| Digital approvals | Returns only | Second workflow: **contractor onboarding approval**, gated on four in-date statutory documents, by someone other than the person who added the contractor |
+| Worker attendance (contract labour) | Only people with accounts | **Crew attendance** recorded per contractor per shift, geo-tagged; unapproved/blacklisted contractors blocked; lapsed documents alert the mine instantly |
+| Scalable deployment | Rate limiter in one process's memory | Rate limiting in the database (works across restarts and instances); extra indexes; scaling notes in the README |
+
+Also: the predictive model's "likely to be missed" threshold is now relative to the national
+miss rate (it silently stopped warning when history changed the base rate); the AI assistant
+now sees repeated failures, contractors awaiting approval, crews under lapsed documents and
+overdue returns. Database tests: 126 checks (was 93).
+
+New files: `supabase/migration_10_governance_completion.sql`, `supabase/seed_compliance_history.py`,
+`frontend/components/ContractorApprovals.js`, `frontend/components/CrewAttendance.js`.
+
+Deploy: run migration 10, then `seed_compliance_history.py`, `seed_field_operations.py`,
+`risk_scoring_job.py`, `predictive_job.py`, `alerts_engine.py`; push backend `app.py`;
+redeploy the frontend.
+
+## Round 1
+
 Measured against the problem statement. Grouped by what it closes.
 
 ## Security fixes (deploy these first)

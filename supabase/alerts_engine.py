@@ -520,6 +520,80 @@ def email_notifications():
     return sent
 
 
+def roll_forward_obligations():
+    """Marks obligations past their date Overdue and starts the next cycle
+    of every obligation whose date has passed (migration 10)."""
+    try:
+        return supabase.rpc("roll_forward_obligations", {}).execute().data or {}
+    except Exception as e:
+        print(f"  ! roll_forward_obligations unavailable ({e}); run migration 10")
+        return {}
+
+
+def prepare_returns():
+    """Prepares last month's statutory returns for every mine with an
+    official (migration 10). Existing returns are left alone."""
+    try:
+        return supabase.rpc("auto_prepare_returns", {}).execute().data or 0
+    except Exception as e:
+        print(f"  ! auto_prepare_returns unavailable ({e}); run migration 10")
+        return 0
+
+
+# ------------------------------------------------------------
+# Statutory returns not yet submitted
+#
+# A month's returns are due by the 7th of the following month. A draft (or
+# one sent back) still unsubmitted after that is overdue; the escalation
+# ladder then carries it to corporate if nobody acts.
+# ------------------------------------------------------------
+def return_alerts():
+    try:
+        rows = supabase.table("statutory_return_view").select(
+            "return_id, mine_id, mine_name, return_type, period_start, status, submission_due"
+        ).in_("status", ["Draft", "Returned"]).lt("submission_due", TODAY.isoformat()).limit(2000).execute().data or []
+    except Exception as e:
+        print(f"  ! statutory_return_view unavailable ({e})")
+        return
+    live = set()
+    for r in rows:
+        sid = str(r["return_id"])
+        live.add(sid)
+        days = (TODAY - dt.date.fromisoformat(r["submission_due"])).days
+        queue_alert(
+            recipient_role="mine_official", mine_id=r["mine_id"], category="approval",
+            severity="High" if days < 7 else "Critical",
+            title=f"{r['mine_name']}: {r['return_type']} for {r['period_start'][:7]} not submitted",
+            body=(f"Was due by {r['submission_due']} ({days} days ago). "
+                  f"{'It was sent back and needs correcting.' if r['status'] == 'Returned' else 'The draft is ready to review and submit.'}"),
+            source_table="statutory_returns_due", source_id=sid, due_date=r["submission_due"],
+        )
+    close_resolved("statutory_returns_due", live)
+
+
+def close_crew_alerts():
+    """A crew alert about lapsed contractor documents closes once every
+    required document of that contractor is back in date."""
+    global closed
+    try:
+        open_alerts = supabase.table("alerts").select("alert_id, source_id").eq(
+            "source_table", "contractor_crew_attendance").in_("status", ["Open", "Acknowledged"]).limit(2000).execute().data or []
+        if not open_alerts:
+            return
+        recs = supabase.table("contractor_crew_attendance").select("record_id, contractor_id").in_(
+            "record_id", [a["source_id"] for a in open_alerts]).execute().data or []
+        by_record = {r["record_id"]: r["contractor_id"] for r in recs}
+        gaps = supabase.table("contractor_register_view").select("contractor_id, document_gaps").in_(
+            "contractor_id", list(set(by_record.values())) or ["00000000-0000-0000-0000-000000000000"]).execute().data or []
+        still_lapsed = {g["contractor_id"] for g in gaps if g.get("document_gaps")}
+        done = [a["alert_id"] for a in open_alerts if by_record.get(a["source_id"]) not in still_lapsed]
+        for i in range(0, len(done), 200):
+            supabase.table("alerts").update({"status": "Resolved"}).in_("alert_id", done[i:i + 200]).execute()
+        closed += len(done)
+    except Exception as e:
+        print(f"  ! crew alert check skipped ({e})")
+
+
 def refresh_overdue_actions():
     """Marks corrective actions past their deadline as Overdue (a database
     function, callable only with the service role)."""
@@ -532,12 +606,20 @@ def refresh_overdue_actions():
 
 def main():
     print(f"Scanning {SUPABASE_URL}\n")
+    # Bring the records up to date first, so this pass alerts on them.
+    rolled = roll_forward_obligations()
+    if rolled:
+        print(f"Obligations: {rolled.get('marked_overdue', 0)} marked overdue, "
+              f"{rolled.get('occurrences_created', 0)} next occurrences scheduled")
+    print(f"Prepared {prepare_returns()} statutory returns")
     print("Scanning compliance...");   compliance_alerts()
     print("Scanning contractors...");  contractor_alerts()
     print("Scanning grievances...");   grievance_alerts()
     print(f"Marked {refresh_overdue_actions()} corrective actions overdue")
     print("Scanning inspections..."); inspection_alerts()
     print("Scanning incidents...");   incident_notice_alerts()
+    print("Scanning returns...");     return_alerts()
+    close_crew_alerts()
     print("Writing alerts...");        flush()
     escalated = escalate()
     emailed = email_notifications()

@@ -20,6 +20,10 @@ WHAT A JUDGE WILL SEE
   * corporate      -- a submitted return waiting for approval
   * regulator      -- an approved return, filed
   * worker         -- two weeks of check-ins, one outside the geo-fence
+  * contractors    -- one approved, one approved but with a lapsed safety
+                      certificate, two awaiting approval (one of them with
+                      a document missing, so it cannot be approved yet),
+                      and two weeks of crew attendance (needs migration 10)
 """
 
 import datetime as dt
@@ -216,6 +220,68 @@ def seed_returns(people, mine):
     print("returns: approved, submitted and draft examples")
 
 
+CORE_DOCS = ["Safety training certificate", "Workmen compensation insurance",
+             "Contract labour licence", "PF registration"]
+DEMO_CONTRACTORS = [
+    # name, scope, status, documents that are lapsed, documents that are missing
+    ("Kaveri Earthmovers", "Overburden removal", "Active", [], []),
+    ("Godavari Haulage", "Coal transport to siding", "Active", ["Safety training certificate"], []),
+    ("Sri Sai Blasting Services", "Drilling and blasting", "Under Review", [], []),
+    ("Deccan Conveyor Works", "Conveyor maintenance", "Under Review", [], ["PF registration"]),
+]
+
+
+def seed_contractors_and_crew(people, mine):
+    """Contractors at the demo mine in every approval state, their core
+    documents, and two weeks of crew attendance (needs migration 10)."""
+    names = [c[0] for c in DEMO_CONTRACTORS]
+    if sb.table("contractors").select("contractor_id", count="exact").in_(
+            "contractor_name", names).eq("mine_id", mine["mine_id"]).limit(1).execute().count:
+        print("contractors and crew: already seeded")
+        return
+    try:
+        sb.table("contractor_crew_attendance").select("record_id").limit(1).execute()
+    except Exception:
+        print("contractors and crew: skipped -- run migration 10 first")
+        return
+    sub = sb.table("mines").select("subsidiary_id").eq("mine_id", mine["mine_id"]).single().execute().data
+    added_by = (people.get("contractor_manager") or {}).get("profile_id")
+    approver = (people.get("mine_official") or {}).get("profile_id")
+    crew = []
+    for name, scope, status, lapsed, missing in DEMO_CONTRACTORS:
+        row = sb.table("contractors").insert({
+            "contractor_name": name, "mine_id": mine["mine_id"], "subsidiary_id": sub.get("subsidiary_id"),
+            "contract_type": scope, "contract_start": (TODAY - dt.timedelta(days=200)).isoformat(),
+            "contract_end": (TODAY + dt.timedelta(days=rng.randint(90, 400))).isoformat(),
+            "contract_value_lakh_inr": round(rng.uniform(40, 900), 2), "status": status,
+            "created_by": added_by, "is_synthetic": True,
+            **({"reviewed_by": approver, "reviewed_at": NOW.isoformat()} if status == "Active" else {}),
+        }).execute().data[0]
+        docs = []
+        for d in CORE_DOCS:
+            if d in missing:
+                continue
+            valid = TODAY - dt.timedelta(days=12) if d in lapsed else TODAY + dt.timedelta(days=rng.randint(60, 500))
+            docs.append({"contractor_id": row["contractor_id"], "document_type": d,
+                         "reference_no": f"{d[:3].upper()}/{rng.randint(1000, 9999)}",
+                         "issued_on": (valid - dt.timedelta(days=365)).isoformat(),
+                         "valid_until": valid.isoformat(), "status": "Valid"})
+        sb.table("contractor_compliance").insert(docs).execute()
+        if status == "Active" and mine.get("latitude"):
+            base = rng.randint(18, 45)
+            for d in range(14, 0, -1):
+                for shift in ("A", "B"):
+                    lat, lon = jitter(mine["latitude"], mine["longitude"], 1)
+                    crew.append({"contractor_id": row["contractor_id"],
+                                 "attendance_date": (TODAY - dt.timedelta(days=d)).isoformat(),
+                                 "shift": shift, "headcount": max(5, base + rng.randint(-6, 6)),
+                                 "supervisor_name": rng.choice(["R. Naidu", "K. Reddy", "S. Rao", "M. Goud"]),
+                                 "work_area": scope, "latitude": lat, "longitude": lon, "is_synthetic": True})
+    if crew:
+        sb.table("contractor_crew_attendance").insert(crew).execute()
+    print(f"contractors and crew: {len(DEMO_CONTRACTORS)} contractors, {len(crew)} crew shifts")
+
+
 def main():
     people, mine_id = demo_people()
     mine = mine_row(mine_id)
@@ -229,6 +295,7 @@ def main():
     seed_incidents(people, mine)
     seed_actions(people, mine)
     seed_returns(people, mine)
+    seed_contractors_and_crew(people, mine)
     print("\nDone. Now run risk_scoring_job.py, predictive_job.py and alerts_engine.py.")
 
 

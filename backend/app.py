@@ -260,12 +260,29 @@ def _admin_key_ok(admin_key: str) -> bool:
 _rate_state = defaultdict(list)
 
 
-def _rate_limited(key: str, max_calls: int, window_seconds: int) -> bool:
+def _rate_limited_local(key: str, max_calls: int, window_seconds: int) -> bool:
     now = time.time()
     calls = [t for t in _rate_state[key] if now - t < window_seconds]
     calls.append(now)
     _rate_state[key] = calls
     return len(calls) > max_calls
+
+
+def _rate_limited(key: str, max_calls: int, window_seconds: int) -> bool:
+    """Shared rate limit, kept in the database (migration 10), so it holds
+    across restarts and across any number of backend instances. If the
+    database call fails -- migration not run, a network hiccup -- this
+    falls back to the per-process limiter rather than refusing everyone."""
+    if supabase:
+        try:
+            res = supabase.rpc("hit_rate_limit", {
+                "p_key": key, "p_max": max_calls, "p_window_seconds": window_seconds,
+            }).execute()
+            if isinstance(res.data, bool):
+                return res.data
+        except Exception:
+            pass
+    return _rate_limited_local(key, max_calls, window_seconds)
 
 
 # ------------------------------------------------------------
@@ -731,11 +748,53 @@ def _build_chat_context(profile: dict) -> str:
                if d.get("days_to_expiry") is not None else "")
             for d in rows))
 
+    def contractors_ctx():
+        if role not in ("mine_official", "contractor_manager", "inspector", "corporate_admin", "regulator", "admin"):
+            return None
+        parts_c = []
+        try:
+            waiting = scoped(supabase.table("contractor_register_view").select(
+                "contractor_name, document_gaps").eq("status", "Under Review")).limit(20).execute().data or []
+            if waiting:
+                parts_c.append("Contractors awaiting approval to work:\n" + "\n".join(
+                    f"- {w['contractor_name']}" + (f" (missing or lapsed: {', '.join(w['document_gaps'])})"
+                                                   if w.get("document_gaps") else " (documents complete)")
+                    for w in waiting))
+        except Exception:
+            pass
+        try:
+            since = (today - datetime.timedelta(days=14)).isoformat()
+            crews = scoped(supabase.table("crew_attendance_view").select(
+                "contractor_name, attendance_date, shift, headcount, lapsed_documents"
+            ).eq("documents_lapsed", True).gte("attendance_date", since)).order(
+                "attendance_date", desc=True).limit(10).execute().data or []
+            if crews:
+                parts_c.append("Contract crews worked under lapsed documents (last 14 days):\n" + "\n".join(
+                    f"- {c['attendance_date']} shift {c['shift']}: {c['contractor_name']}, {c['headcount']} workers, "
+                    f"lapsed {', '.join(c.get('lapsed_documents') or [])}" for c in crews))
+        except Exception:
+            pass
+        return "\n\n".join(parts_c) or None
+
+    def repeat_failures():
+        try:
+            rows = scoped(supabase.table("obligation_track_record_view").select(
+                "mine_id, requirement_summary, periods, missed, miss_rate"
+            ).gte("missed", 2).gte("miss_rate", 0.5)).order("missed", desc=True).limit(12).execute().data or []
+        except Exception:
+            return None
+        if not rows:
+            return None
+        names = _mine_names(r["mine_id"] for r in rows)
+        return ("Obligations missed again and again (last 12 months):\n" + "\n".join(
+            f"- {label(names, r['mine_id'])}: {_clip(r['requirement_summary'], 110)} (missed {r['missed']} of {r['periods']})"
+            for r in rows))
+
     def returns():
         if not (wide or role == "mine_official"):
             return None
         q = scoped(supabase.table("statutory_return_view").select(
-            "mine_name, return_type, period_start, status, review_note"))
+            "mine_name, return_type, period_start, status, review_note, submission_due"))
         if role == "regulator":
             q = q.eq("status", "Approved")
         rows = q.order("period_start", desc=True).limit(10).execute().data or []
@@ -744,10 +803,13 @@ def _build_chat_context(profile: dict) -> str:
         return ("Statutory returns:\n" + "\n".join(
             f"- {r['mine_name']}: {r['return_type']} for {str(r['period_start'])[:7]} — {r['status']}"
             + (f" (sent back: {r['review_note']})" if r.get("status") == "Returned" and r.get("review_note") else "")
+            + (f" -- OVERDUE, was due by {r['submission_due']}"
+               if r.get("status") in ("Draft", "Returned") and r.get("submission_due")
+               and r["submission_due"] < today.isoformat() else "")
             for r in rows))
 
-    for fn in (totals, flags, overdue_breadth, overdue_sample, predictions, actions, incidents,
-               environment, production, attendance, grievances, contractor_docs, returns):
+    for fn in (totals, flags, overdue_breadth, overdue_sample, repeat_failures, predictions, actions, incidents,
+               environment, production, attendance, grievances, contractor_docs, contractors_ctx, returns):
         section(fn)
 
     scope_note = ("You can see data across ALL mines."

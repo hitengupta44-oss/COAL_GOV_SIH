@@ -52,7 +52,7 @@ prediction so nobody has to take the quality on trust.
 OUTPUT
 ------
   compliance_predictions   one row per pending obligation (migration 09)
-  ai_risk_flags            'Predicted Non-Compliance' per mine with 3+ items at 60%+
+  ai_risk_flags            'Predicted Non-Compliance' per mine with 3+ likely misses
                            likely misses -- answered through the same
                            respond/dispute workflow as every other flag
   alerts                   to the mine official for high-probability items
@@ -73,10 +73,17 @@ from credentials import get_supabase_credentials
 
 MODEL_VERSION = "logreg-v1"
 PRIOR_WEIGHT = 5          # smoothing strength for the two rate features
-ALERT_PROBABILITY = 0.70  # alert threshold
-ALERT_WINDOW_DAYS = 14    # ...for items due this soon
+ALERT_WINDOW_DAYS = 14    # early warnings for items due this soon
 FLAG_MIN_ITEMS = 3        # likely misses before a mine-level flag is raised
-FLAG_PROBABILITY = 0.60   # "likely" for the mine-level flag: ~10% of mines on seed data
+
+# What counts as "likely to be missed" is set relative to how often
+# obligations are missed overall: at least twice the base rate, and never
+# below an even chance (or above 70%). A fixed cut-off breaks as soon as
+# the history changes -- more on-time records lower every probability, and
+# a 70% bar that suited one dataset silences every warning on the next.
+def likely_threshold(base_rate):
+    return round(min(0.70, max(0.50, 2 * base_rate)), 2)
+
 
 TODAY = dt.date.today()
 
@@ -221,6 +228,8 @@ def main():
     auc = roc_auc_score(y, oof)
     base = roc_auc_score(y, df.loc[train, "mine_miss_rate"])
     print(f"  cross-validated AUC {auc:.3f} (baseline, mine track record alone: {base:.3f})")
+    threshold = likely_threshold(float(y.mean()))
+    print(f"  'likely to be missed' threshold: {threshold:.0%} (base miss rate {y.mean():.0%})")
 
     model.fit(X[train], y)
     scaler, lr = model.named_steps["standardscaler"], model.named_steps["logisticregression"]
@@ -268,14 +277,14 @@ def main():
                                     on="tracking_id")
     print(pred["risk_band"].value_counts().to_string())
 
-    raise_alerts(sb, pred)
-    raise_flags(sb, pred, auc)
+    raise_alerts(sb, pred, threshold)
+    raise_flags(sb, pred, auc, threshold)
 
 
-def raise_alerts(sb, pred):
+def raise_alerts(sb, pred, threshold):
     """Early warning: likely misses falling due soon, addressed to the mine."""
     due = pd.to_datetime(pred["due_date"], errors="coerce").dt.date
-    soon = pred[(pred["probability"] >= ALERT_PROBABILITY) &
+    soon = pred[(pred["probability"] >= threshold) &
                 (due <= TODAY + dt.timedelta(days=ALERT_WINDOW_DAYS))]
     existing = {r["source_id"] for r in fetch_all(sb, lambda: sb.table("alerts").select("source_id").eq(
         "source_table", "compliance_predictions").in_("status", ["Open", "Acknowledged"]))}
@@ -305,10 +314,10 @@ def raise_alerts(sb, pred):
     print(f"Early-warning alerts: {len(new)} raised, {len(close)} closed")
 
 
-def raise_flags(sb, pred, auc):
+def raise_flags(sb, pred, auc, threshold):
     """One mine-level finding where several obligations look likely to slip.
     Mine responses on existing flags are preserved, as in risk_scoring_job."""
-    likely = pred[pred["probability"] >= FLAG_PROBABILITY]
+    likely = pred[pred["probability"] >= threshold]
     per_mine = likely.groupby("mine_id").agg(n=("tracking_id", "size"), mean_p=("probability", "mean"),
                                              sample=("requirement_summary", lambda s: list(s)[:3]))
     per_mine = per_mine[per_mine["n"] >= FLAG_MIN_ITEMS]

@@ -34,7 +34,7 @@ function MinePicker({ value, onChange }) {
     // Mines with any production reported, most recent first.
     supabase.from("mine_production_daily").select("mine_id").order("production_date", { ascending: false }).limit(1000)
       .then(async ({ data }) => {
-        const ids = [...new Set((data || []).map((r) => r.mine_id))];
+        const ids = [...new Set((data || []).map((r) => r.mine_id).filter(Boolean))];
         if (!ids.length) return;
         const { data: m } = await supabase.from("mines").select("mine_id, mine_name, state").in("mine_id", ids);
         const sorted = (m || []).sort((a, b) => a.mine_name.localeCompare(b.mine_name));
