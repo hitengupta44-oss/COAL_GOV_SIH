@@ -30,7 +30,35 @@ const BACKEND_URL =
 // doesn't produce a double-slash URL that 404s.
 const BASE = String(BACKEND_URL).replace(/\/+$/, "");
 
+import { supabase } from "./supabase";
+
+// A backend reply meaning the login session behind this token is gone --
+// signed out on another device, or expired while the tab sat open.
+const isSessionError = (r) =>
+  (typeof r === "string" && r.startsWith("Invalid or expired access_token"))
+  || (r && typeof r === "object" && typeof r.error === "string" && r.error.startsWith("Invalid or expired access_token"));
+
+// Every backend function takes the access token as its first argument. If
+// the session behind it has ended, get a fresh token once and retry. If
+// the session cannot be renewed either, the person has to sign in again:
+// send them to the login page rather than showing a dashboard full of
+// zeros and a technical error.
 async function callBackend(fnName, args = []) {
+  const result = await callBackendOnce(fnName, args);
+  if (!isSessionError(result) || !args.length) return result;
+
+  const { data, error } = await supabase.auth.refreshSession();
+  const token = data?.session?.access_token;
+  if (!error && token) {
+    const retry = await callBackendOnce(fnName, [token, ...args.slice(1)]);
+    if (!isSessionError(retry)) return retry;
+  }
+  try { await supabase.auth.signOut({ scope: "local" }); } catch { /* already gone */ }
+  if (typeof window !== "undefined") window.location.replace("/login?expired=1");
+  return { error: "Your session has ended. Please sign in again." };
+}
+
+async function callBackendOnce(fnName, args) {
   const url = `${BASE}/api/${fnName}`;
   const res = await fetch(url, {
     method: "POST",
