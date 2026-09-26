@@ -9,7 +9,9 @@
 // it until they resurface is how field observations get lost or
 // reconstructed from memory hours later.
 
-const VERSION = "v2";
+// Bump on any change to this file's caching rules; activation deletes every
+// cache from an older version.
+const VERSION = "v3";
 const SHELL = `shell-${VERSION}`;
 const DATA = `data-${VERSION}`;
 const LIBS = `libs-${VERSION}`;
@@ -100,8 +102,32 @@ self.addEventListener("fetch", (event) => {
     return;
   }
 
-  // Everything else -- pages, scripts, styles, fonts, map tiles -- is
-  // served from cache when present and fetched otherwise.
+  // Pages and page data: network first, so a new deployment is seen at
+  // once; the saved copy is only for when there is no connection. (Served
+  // cache-first, a page stayed on whatever version was first saved -- and
+  // so did the scripts it referenced -- until this file changed.)
+  const isPage = request.mode === "navigate" || url.pathname.startsWith("/_next/data/")
+    || (url.origin === self.location.origin && !url.pathname.startsWith("/_next/static/")
+        && !/\.(png|jpe?g|svg|ico|webp|woff2?|css|js)$/.test(url.pathname));
+  if (isPage) {
+    event.respondWith(
+      fetch(request)
+        .then((res) => {
+          if (res.ok) {
+            const copy = res.clone();
+            caches.open(SHELL).then((c) => c.put(request, copy));
+          }
+          return res;
+        })
+        .catch(() => caches.match(request).then((hit) =>
+          hit || (request.mode === "navigate" ? caches.match("/offline")
+                                               : new Response("", { status: 504, statusText: "Offline" }))))
+    );
+    return;
+  }
+
+  // Fingerprinted build files (/_next/static/...), icons, fonts and map
+  // tiles never change under the same URL, so cache first is safe.
   event.respondWith(
     caches.match(request).then((hit) => {
       if (hit) return hit;
