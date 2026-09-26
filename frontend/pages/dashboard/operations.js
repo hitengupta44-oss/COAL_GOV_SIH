@@ -6,6 +6,8 @@ import {
 import RoleGuard from "../../components/RoleGuard";
 import Layout from "../../components/Layout";
 import { Card, StatStrip, Table, Badge, Field, Button, Notice, Empty } from "../../components/ui";
+import AmbientAir from "../../components/AmbientAir";
+import RiverWater from "../../components/RiverWater";
 import { useAuth } from "../../lib/useAuth";
 import { supabase } from "../../lib/supabase";
 
@@ -31,20 +33,29 @@ const num = (v) => (v == null ? "—" : Number(v).toLocaleString(undefined, { ma
 function MinePicker({ value, onChange }) {
   const [mines, setMines] = useState([]);
   useEffect(() => {
-    // Mines with any production reported, most recent first.
-    supabase.from("mine_production_daily").select("mine_id").order("production_date", { ascending: false }).limit(1000)
-      .then(async ({ data }) => {
-        const ids = [...new Set((data || []).map((r) => r.mine_id).filter(Boolean))];
-        if (!ids.length) return;
-        const { data: m } = await supabase.from("mines").select("mine_id, mine_name, state").in("mine_id", ids);
-        const sorted = (m || []).sort((a, b) => a.mine_name.localeCompare(b.mine_name));
-        setMines(sorted);
-        if (!value && sorted[0]) onChange(sorted[0].mine_id);
-      });
+    // Mines with production reported, plus mines whose own published
+    // monitoring data has been loaded (migration 12).
+    Promise.all([
+      supabase.from("mine_production_daily").select("mine_id").order("production_date", { ascending: false }).limit(1000),
+      supabase.from("env_readings").select("mine_id").not("source_document", "is", null).limit(1000),
+    ]).then(async ([{ data: p }, { data: e }]) => {
+      const published = new Set((e || []).map((r) => r.mine_id));
+      const ids = [...new Set([...(p || []), ...(e || [])].map((r) => r.mine_id).filter(Boolean))];
+      if (!ids.length) return;
+      const { data: m } = await supabase.from("mines").select("mine_id, mine_name, state").in("mine_id", ids);
+      const sorted = (m || []).map((x) => ({ ...x, published: published.has(x.mine_id) }))
+        .sort((a, b) => a.mine_name.localeCompare(b.mine_name));
+      setMines(sorted);
+      if (!value && sorted[0]) onChange(sorted[0].mine_id);
+    });
   }, []);
   return (
     <select value={value || ""} onChange={(e) => onChange(e.target.value)} style={{ width: 280 }}>
-      {mines.map((m) => <option key={m.mine_id} value={m.mine_id}>{m.mine_name}, {m.state}</option>)}
+      {mines.map((m) => (
+        <option key={m.mine_id} value={m.mine_id}>
+          {m.mine_name}, {m.state}{m.published ? " · real monitoring data" : ""}
+        </option>
+      ))}
     </select>
   );
 }
@@ -152,6 +163,8 @@ function OperationsContent() {
   const [env, setEnv] = useState(null);
   const [limits, setLimits] = useState([]);
   const [param, setParam] = useState("PM10");
+  const [basisMt, setBasisMt] = useState(null);
+  const [envHistoric, setEnvHistoric] = useState(false);
 
   useEffect(() => {
     supabase.from("env_limits").select("*").order("medium").then(({ data }) => setLimits(data || []));
@@ -160,14 +173,22 @@ function OperationsContent() {
   const load = async () => {
     if (!mineId) return;
     const since = daysAgo(60);
-    const [{ data: p }, { data: e }] = await Promise.all([
+    const [{ data: p }, { data: e }, { data: m }] = await Promise.all([
       supabase.from("production_anomaly_view").select("*").eq("mine_id", mineId)
         .gte("production_date", since).order("production_date"),
-      supabase.from("env_readings").select("reading_date, parameter, value, limit_min, limit_max, exceeds_limit, station_label")
-        .eq("mine_id", mineId).gte("reading_date", daysAgo(90)).order("reading_date"),
+      // Newest first, without a date cut-off: a mine whose only readings
+      // come from a published report still shows them (labelled below).
+      supabase.from("env_readings")
+        .select("reading_date, parameter, value, limit_min, limit_max, exceeds_limit, station_label, source_document")
+        .eq("mine_id", mineId).order("reading_date", { ascending: false }).limit(1500),
+      supabase.from("mines").select("production_2019_20_mt").eq("mine_id", mineId).maybeSingle(),
     ]);
+    setBasisMt(m?.production_2019_20_mt != null ? Number(m.production_2019_20_mt) : null);
     setProd(p || []);
-    setEnv(e || []);
+    const all = (e || []).slice().reverse();
+    const recent = all.filter((r) => r.reading_date >= daysAgo(90));
+    setEnvHistoric(!recent.length && all.length > 0);
+    setEnv(recent.length ? recent : all);
   };
   useEffect(() => { load(); }, [mineId]);
 
@@ -181,9 +202,32 @@ function OperationsContent() {
   const target30 = last30.reduce((s, r) => s + Number(r.target_t || 0), 0);
   const anomalies = (prod || []).filter((r) => r.is_anomaly);
   const breaches = (env || []).filter((r) => r.exceeds_limit);
+  const breaches90 = envHistoric ? [] : breaches;
+  const envSources = [...new Set((env || []).map((r) => r.source_document).filter(Boolean))];
+  const envRange = env && env.length ? `${env[0].reading_date} to ${env[env.length - 1].reading_date}` : "";
   const lim = limits.find((l) => l.parameter === param);
   const envSeries = (env || []).filter((r) => r.parameter === param)
     .map((r) => ({ date: r.reading_date.slice(5), value: Number(r.value), breach: r.exceeds_limit ? Number(r.value) : null }));
+  // Data quality: a continuous analyser that repeats the same value day
+  // after day, or reports zero for an ambient pollutant, has usually
+  // stopped measuring. Such stretches are shown as published but called out.
+  const suspect = (() => {
+    const out = [];
+    const pts = (env || []).filter((r) => r.parameter === param);
+    let i = 0;
+    while (i < pts.length) {
+      let j = i;
+      while (j + 1 < pts.length && Number(pts[j + 1].value) === Number(pts[i].value)) j += 1;
+      const n = j - i + 1;
+      if (Number(pts[i].value) === 0 && lim?.medium === "Air") {
+        out.push(`${param} reads 0 on ${n} reading${n > 1 ? "s" : ""} (${pts[i].reading_date} to ${pts[j].reading_date})`);
+      } else if (n >= 5) {
+        out.push(`${param} is exactly ${Number(pts[i].value)} on ${n} consecutive readings (${pts[i].reading_date} to ${pts[j].reading_date})`);
+      }
+      i = j + 1;
+    }
+    return out;
+  })();
   const canProd = role === "mine_official" || role === "corporate_admin" || role === "admin";
   const canEnv = canProd || role === "inspector";
 
@@ -199,7 +243,8 @@ function OperationsContent() {
         { label: "Produced, last 30 days", value: `${num(produced30)} t`,
           note: target30 ? `${Math.round((100 * produced30) / target30)}% of ${num(target30)} t target` : undefined },
         { label: "Anomalous days, 60 days", value: anomalies.length, tone: anomalies.length ? "high" : null },
-        { label: "Environmental breaches, 90 days", value: breaches.length, tone: breaches.length ? "critical" : null },
+        { label: "Environmental breaches, 90 days", value: breaches90.length, tone: breaches90.length ? "critical" : null,
+          note: envHistoric ? `${breaches.length} in the published record, ${envRange}` : undefined },
       ]} />
 
       {canProd && mineId && !wide && <ProductionEntry mineId={mineId} onSaved={load} />}
@@ -214,9 +259,9 @@ function OperationsContent() {
                 <YAxis tick={{ fontSize: 12 }} width={64} tickFormatter={(v) => `${Math.round(v / 1000)}k`} />
                 <Tooltip formatter={(v, n) => [`${num(v)} t`, n]} />
                 <Legend wrapperStyle={{ fontSize: 13 }} />
-                <Line type="monotone" dataKey="target" name="Target" stroke="var(--ink-faint)" strokeDasharray="4 4" dot={false} />
-                <Line type="monotone" dataKey="produced" name="Produced" stroke="var(--primary)" strokeWidth={2} dot={false} />
-                <Scatter dataKey="anomaly" name="Anomalous day" fill="var(--sev-critical)" />
+                <Line isAnimationActive={false} type="monotone" dataKey="target" name="Target" stroke="var(--ink-faint)" strokeDasharray="4 4" dot={false} />
+                <Line isAnimationActive={false} type="monotone" dataKey="produced" name="Produced" stroke="var(--primary)" strokeWidth={2} dot={false} />
+                <Scatter isAnimationActive={false} dataKey="anomaly" name="Anomalous day" fill="var(--sev-critical)" />
               </ComposedChart>
             </ResponsiveContainer>
           </div>
@@ -234,6 +279,14 @@ function OperationsContent() {
             severityOf={() => "High"}
           />
         )}
+        {chart.length > 0 && (
+          <p style={{ fontSize: 13, color: "var(--ink-faint)", margin: "8px 0 0" }}>
+            {basisMt != null && basisMt >= 0.01
+              ? `Target basis: this mine's actual 2019-20 output of ${num(basisMt)} million tonnes, spread evenly over the year `
+                + `(${num((basisMt * 1e6) / 365)} t a day). Source: Indian Coal Mines Dataset, January 2021.`
+              : "Target basis: illustrative. No meaningful 2019-20 output is on record for this mine."}
+          </p>
+        )}
       </Card>
 
       {canEnv && mineId && !wide && <EnvEntry mineId={mineId} limits={limits} onSaved={load} />}
@@ -243,7 +296,12 @@ function OperationsContent() {
           {limits.map((l) => <option key={l.parameter} value={l.parameter}>{l.parameter}</option>)}
         </select>
       }>
-        {envSeries.length === 0 ? <Empty>No {param} readings in the last 90 days.</Empty> : (
+        {envHistoric && (
+          <p style={{ color: "var(--ink-soft)", fontSize: 14, marginTop: -4 }}>
+            No readings in the last 90 days. Showing the mine&apos;s latest readings on record, {envRange}.
+          </p>
+        )}
+        {envSeries.length === 0 ? <Empty>No {param} readings {envHistoric ? "on record" : "in the last 90 days"}.</Empty> : (
           <div style={{ width: "100%", height: 260 }}>
             <ResponsiveContainer>
               <ComposedChart data={envSeries} margin={{ top: 8, right: 16, bottom: 0, left: 8 }}>
@@ -259,13 +317,24 @@ function OperationsContent() {
                   <ReferenceLine y={Number(lim.min_value)} stroke="var(--sev-critical)" strokeDasharray="4 4"
                     label={{ value: `Min ${lim.min_value}`, fontSize: 12, fill: "var(--sev-critical)", position: "insideBottomRight" }} />
                 )}
-                <Line type="monotone" dataKey="value" stroke="var(--primary)" strokeWidth={2} dot={{ r: 2 }} />
-                <Scatter dataKey="breach" fill="var(--sev-critical)" />
+                <Line isAnimationActive={false} type="monotone" dataKey="value" stroke="var(--primary)" strokeWidth={2} dot={{ r: 2 }} />
+                <Scatter isAnimationActive={false} dataKey="breach" fill="var(--sev-critical)" />
               </ComposedChart>
             </ResponsiveContainer>
           </div>
         )}
+        {suspect.length > 0 && (
+          <Notice tone="error">
+            Possible monitoring fault: {suspect.join("; ")}. A working analyser does not repeat itself or read zero;
+            these values are shown as reported, but they should not be relied on and the mine should explain them.
+          </Notice>
+        )}
         {lim && <p style={{ fontSize: 13, color: "var(--ink-faint)", margin: "8px 0 0" }}>Limit basis: {lim.basis}</p>}
+        {envSources.length > 0 && (
+          <p style={{ fontSize: 13, color: "var(--ink-faint)", margin: "4px 0 0" }}>
+            Real readings, copied from: {envSources.join("; ")}.
+          </p>
+        )}
       </Card>
 
       <Card title="Readings outside statutory limits" severity={breaches.length ? "Critical" : undefined}>
@@ -281,9 +350,14 @@ function OperationsContent() {
           rows={[...breaches].reverse()}
           countLabel="readings"
           severityOf={() => "Critical"}
-          empty="Every reading in the last 90 days was within its limit."
+          empty={envHistoric ? "Every reading on record was within its limit." : "Every reading in the last 90 days was within its limit."}
         />
       </Card>
+
+      <AmbientAir mineId={mineId} />
+      <RiverWater mineId={mineId} />
+      {wide && <AmbientAir mineId={null} />}
+      {wide && <RiverWater mineId={null} />}
     </Layout>
   );
 }

@@ -141,3 +141,8 @@ html[lang="hi"] body { font-family: "IBM Plex Sans", "Noto Sans Devanagari", sys
 .segmented button { background: var(--surface); border: none; padding: 6px 12px; cursor: pointer; color: var(--ink-soft); }
 .segmented button + button { border-left: 1px solid var(--line-strong); }
 .segmented button[aria-pressed="true"] { background: var(--primary); color: #fff; }
+
+/* Leaflet's layer list: the global full-width input rule above would put
+   each checkbox on its own line above its label. */
+.leaflet-control-layers label { display: flex; align-items: center; gap: 6px; font-size: 13px; }
+.leaflet-control-layers input[type="checkbox"] { width: auto; margin: 0; padding: 0; }

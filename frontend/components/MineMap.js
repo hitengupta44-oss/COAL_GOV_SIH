@@ -104,7 +104,7 @@ export default function MineMap({ height = 460 }) {
         // the country. A layer whose source is unavailable is just left out.
         const since = new Date(Date.now() - 90 * 864e5).toISOString();
         const safe = async (q) => { try { const { data } = await q; return data || []; } catch { return []; } };
-        const [findings, incidents, offsite] = await Promise.all([
+        const [findings, incidents, offsite, boundaries] = await Promise.all([
           safe(supabase.from("corrective_action_view")
             .select("inspection_id, mine_name, observation_type, severity, notes, latitude, longitude, corrective_action_status, action_due_date, is_late, within_geofence")
             .neq("corrective_action_status", "Closed").not("latitude", "is", null).limit(1500)),
@@ -114,7 +114,10 @@ export default function MineMap({ height = 460 }) {
           safe(supabase.from("attendance_checkin_view")
             .select("checkin_id, full_name, check_in_at, check_in_lat, check_in_lon, check_in_distance_m, mine_id")
             .eq("check_in_within_geofence", false).gte("check_in_at", since).limit(500)),
+          // Lease boundaries (migration 12), where a mine has one.
+          safe(supabase.from("mine_boundaries").select("mine_id, boundary, boundary_type, source, area_ha")),
         ]);
+        const boundaryOf = Object.fromEntries(boundaries.map((b) => [b.mine_id, b]));
 
         const worst = {};
         (flags || []).forEach((f) => {
@@ -237,15 +240,35 @@ export default function MineMap({ height = 460 }) {
         const fenceLayer = L.layerGroup();
         const singleMine = Boolean(profile?.mine_id) && scoped.length === 1;
         let fenceBounds = null;
+        const leasePopup = (b) => `<strong>Lease boundary</strong><br>${esc(b.boundary_type)}` +
+          (b.area_ha ? ` · ${esc(b.area_ha)} ha` : "") + `<br><span style="color:#46586B">${esc(b.source)}</span>` +
+          "<br>Records within 250 m of this line count as at the mine.";
         if (singleMine) {
           const m = scoped[0];
-          fenceBounds = L.latLng(Number(m.latitude), Number(m.longitude)).toBounds(2 * geofenceRadius(m.geo_accuracy));
-          L.circle([Number(m.latitude), Number(m.longitude)], {
-            radius: geofenceRadius(m.geo_accuracy), color: "#1A5490", weight: 1.5, dashArray: "6 4", fillOpacity: 0.04,
-          }).addTo(fenceLayer).bindPopup(
-            `Geo-fence: ${geofenceRadius(m.geo_accuracy) / 1000} km around the recorded location` +
-            ` (${String(m.geo_accuracy || "approximate").toLowerCase()} coordinates)`);
+          const b = boundaryOf[m.mine_id];
+          if (b) {
+            // The geo-fence is the lease itself.
+            const poly = L.polygon(b.boundary, { color: "#1A5490", weight: 2, dashArray: "6 4", fillOpacity: 0.06 });
+            poly.addTo(fenceLayer).bindPopup(leasePopup(b));
+            fenceBounds = L.latLngBounds(b.boundary);
+          } else {
+            fenceBounds = L.latLng(Number(m.latitude), Number(m.longitude)).toBounds(2 * geofenceRadius(m.geo_accuracy));
+            L.circle([Number(m.latitude), Number(m.longitude)], {
+              radius: geofenceRadius(m.geo_accuracy), color: "#1A5490", weight: 1.5, dashArray: "6 4", fillOpacity: 0.04,
+            }).addTo(fenceLayer).bindPopup(
+              `Geo-fence: ${geofenceRadius(m.geo_accuracy) / 1000} km around the recorded location` +
+              ` (${String(m.geo_accuracy || "approximate").toLowerCase()} coordinates). No lease boundary on record yet.`);
+          }
           fenceLayer.addTo(map);
+        }
+        // Oversight roles: every lease boundary on record, as its own layer.
+        const leaseLayer = L.layerGroup();
+        if (!singleMine) {
+          boundaries.forEach((b) => {
+            const m = mineById[b.mine_id];
+            L.polygon(b.boundary, { color: "#1A5490", weight: 2, fillOpacity: 0.08 })
+              .addTo(leaseLayer).bindPopup(`<strong>${esc(m?.mine_name || "")}</strong><br>` + leasePopup(b));
+          });
         }
 
         const overlays = {
@@ -255,6 +278,7 @@ export default function MineMap({ height = 460 }) {
           [`Check-ins outside boundary (${offsite.length})`]: offsiteLayer,
         };
         if (singleMine) overlays["Geo-fence"] = fenceLayer;
+        else if (boundaries.length) overlays[`Lease boundaries (${boundaries.length})`] = leaseLayer;
         // Findings and incidents start switched on where there are few
         // enough to read; across the whole country they start off.
         if (findings.length && findings.length <= 300) findingsLayer.addTo(map);
