@@ -42,6 +42,10 @@ export default function Layout({ title, subtitle, children }) {
   const { t, lang, setLang } = useT();
   const router = useRouter();
   const [mine, setMine] = useState(null);
+  // On a phone the menu folds away behind a button, so a page opens on its
+  // content rather than on a screen of links.
+  const [menuOpen, setMenuOpen] = useState(false);
+  useEffect(() => { setMenuOpen(false); }, [router.asPath]);
 
   // Mine-scoped roles get their site named in the header. Without it the
   // same screen looks identical whichever mine you're assigned to, and
@@ -77,8 +81,18 @@ export default function Layout({ title, subtitle, children }) {
 
   return (
     <div className="app">
-      <nav className="sidebar">
-        <div style={{ padding: "20px 20px 16px", borderBottom: "1px solid rgba(255,255,255,.10)" }}>
+      <div className="topbar">
+        <div>
+          <div style={{ color: "#fff", fontWeight: 600, fontSize: 15 }}>Coal Mine Governance</div>
+          <div style={{ fontSize: 12.5, color: "#8FA2B4" }}>{ROLE_LABEL[profile?.role] || ""}</div>
+        </div>
+        <button className="menubtn" aria-expanded={menuOpen} aria-controls="app-nav"
+          onClick={() => setMenuOpen((o) => !o)}>
+          {menuOpen ? "Close" : "Menu"}
+        </button>
+      </div>
+      <nav className={`sidebar${menuOpen ? " open" : ""}`} id="app-nav">
+        <div className="brand" style={{ padding: "20px 20px 16px", borderBottom: "1px solid rgba(255,255,255,.10)" }}>
           <div style={{ color: "#fff", fontWeight: 600, fontSize: 15, lineHeight: 1.3 }}>
             Coal Mine Governance
           </div>

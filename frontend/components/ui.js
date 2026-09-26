@@ -50,9 +50,10 @@ export function Card({ title, action, severity, children, style }) {
 export function StatStrip({ items }) {
   return (
     <div
+      className="statstrip"
       style={{
         display: "grid",
-        gridTemplateColumns: `repeat(${items.length}, minmax(0,1fr))`,
+        "--cols": items.length,
         background: "var(--surface)",
         border: "1px solid var(--line)",
         borderRadius: "var(--radius)",
@@ -62,10 +63,8 @@ export function StatStrip({ items }) {
       {items.map((it, i) => (
         <div
           key={it.label}
-          style={{
-            padding: "16px 20px",
-            borderLeft: i === 0 ? "none" : "1px solid var(--line)",
-          }}
+          className="stat"
+          style={{ padding: "16px 20px" }}
         >
           <div style={{ fontSize: 13, color: "var(--ink-soft)" }}>{it.label}</div>
           <div

@@ -112,10 +112,34 @@ input:focus, select:focus, textarea:focus, button:focus-visible, a:focus-visible
   font-weight: 500;
 }
 
+/* Stat strips: one row on a desktop, two columns on a phone. */
+.statstrip { grid-template-columns: repeat(var(--cols), minmax(0, 1fr)); }
+.statstrip > .stat + .stat { border-left: 1px solid var(--line); }
+
+/* The phone top bar exists only on narrow screens. */
+.topbar { display: none; }
+
 @media (max-width: 860px) {
   .app { flex-direction: column; }
-  .sidebar { width: 100%; flex: none; height: auto; position: static; }
-  .main { padding: 20px 18px 48px; }
+  .topbar {
+    display: flex; align-items: center; justify-content: space-between; gap: 12px;
+    background: var(--ink); padding: 12px 16px; position: sticky; top: 0; z-index: 1000;
+  }
+  .menubtn {
+    background: none; border: 1px solid rgba(255,255,255,.35); color: #fff; border-radius: 3px;
+    padding: 8px 14px; font-size: 14px; cursor: pointer;
+  }
+  .sidebar { display: none; width: 100%; flex: none; height: auto; position: static; }
+  .sidebar.open { display: flex; }
+  .sidebar .brand { display: none; }
+  .main { padding: 18px 16px 48px; }
+  .statstrip { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .statstrip > .stat + .stat { border-left: none; }
+  .statstrip > .stat:nth-child(even) { border-left: 1px solid var(--line); }
+  .statstrip > .stat:nth-child(n + 3) { border-top: 1px solid var(--line); }
+  .statstrip > .stat:last-child:nth-child(odd) { grid-column: 1 / -1; }
+  .statstrip .figure { font-size: 26px !important; }
+  h1 { font-size: 24px; }
 }
 
 @media (prefers-reduced-motion: reduce) {
