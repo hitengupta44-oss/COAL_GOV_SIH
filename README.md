@@ -350,12 +350,21 @@ Regulations, not paraphrased.
 - Mines Rules, 1955 · Contract Labour (R&A) Act, 1970
 - DGMS annual report — inspections, improvement notices, prosecutions
 - DGMS fatal & serious accident statistics, owner-wise, 2017–2024
-- Indian Coal Mines Dataset (Jan 2021) — 459 mines, location and status
-- CPCB National Ambient Air Quality Standards, 2009 · CGWB water quality data
+- Indian Coal Mines Dataset (Jan 2021) — 459 mines, location, owner and **actual
+  2019-20 output**, which sets each mine's daily production target
+- CPCB ambient air quality, 2023 annual averages — each mine is linked to its nearest
+  monitoring city (within 60 km) and compared with the NAAQS 2009 annual limits
+- CPCB river water quality, NWMP 2024 — 1,555 stations; 66 on coal-belt rivers placed
+  on the map, linked to 260 mines and checked against CPCB's bathing-water criteria
+- Six-monthly EC compliance reports — Pakri Barwadih (NTPC): 183 days of its own
+  continuous air-quality station, Oct 2023–Mar 2024; Jamuniya UG (WCL): lease extent
+- CPCB National Ambient Air Quality Standards, 2009 · CPCB river water quality (Yamuna, 2025)
 - Rajya Sabha unstarred questions on coal production and safety
 
-Attendance, contractor and grievance records are **synthetic**, generated to
-demonstrate the workflows, and flagged as such in the database.
+Attendance, contractor, grievance and field-inspection records are **synthetic**,
+generated to demonstrate the workflows, and flagged as such in the database. They
+are attached to real mines under their real subsidiaries, with inspection positions
+at the mine. Daily production figures are synthetic around each mine's real output.
 
 ---
 
@@ -365,9 +374,9 @@ Stated here rather than discovered later.
 
 - **Native mobile app** — the PWA installs, works offline and uses the camera and
   GPS, but isn't in an app store
-- **Lease-boundary geo-fences** — records are checked against a radius around each
-  mine's point (5 km where the point is exact, 25 km where approximate), not the
-  surveyed lease polygon
+- **Lease boundaries for every mine** — the geo-fence follows a mine's lease polygon
+  where one is loaded (KML, or the extent stated in its EC report; one mine so far).
+  Elsewhere it is a radius around the mine's point (5 km exact, 25 km approximate)
 - **Real compliance history for the model** — the predictive pipeline is real, but
   the seed compliance statuses are synthetic, so its accuracy on seed data (AUC ≈ 0.70)
   says little about real performance. It prints and stores its cross-validated AUC

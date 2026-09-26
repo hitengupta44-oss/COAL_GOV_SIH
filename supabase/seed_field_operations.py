@@ -39,6 +39,7 @@ rng = random.Random(2026)
 TODAY = dt.date.today()
 NOW = dt.datetime.now(dt.timezone.utc)
 EXTRA_MINES = 15   # other mines given production/env data so oversight views aren't one-mine
+MIN_REAL_MT = 0.01  # same threshold as production_basis_min_mt() in migration 11
 
 
 def demo_people():
@@ -52,7 +53,7 @@ def demo_people():
 
 
 def mine_row(mine_id):
-    return sb.table("mines").select("mine_id, mine_name, latitude, longitude").eq(
+    return sb.table("mines").select("mine_id, mine_name, latitude, longitude, production_2019_20_mt").eq(
         "mine_id", mine_id).single().execute().data
 
 
@@ -69,7 +70,10 @@ def seed_production(mines):
         return
     rows = []
     for m in mines:
-        base = rng.uniform(1500, 9000)
+        # The daily target is the mine's real 2019-20 output / 365 where that
+        # is on record (migration 11); otherwise an illustrative figure.
+        real = float(m.get("production_2019_20_mt") or 0)
+        base = real * 1e6 / 365 if real >= MIN_REAL_MT else rng.uniform(1500, 9000)
         odd = {rng.randint(3, 50), rng.randint(3, 50)}          # two anomalous days per mine
         for d in range(60, -1, -1):
             day = TODAY - dt.timedelta(days=d)
@@ -286,8 +290,11 @@ def main():
     people, mine_id = demo_people()
     mine = mine_row(mine_id)
     print(f"Demo mine: {mine['mine_name']}\n")
-    others = sb.table("mines").select("mine_id, mine_name, latitude, longitude").neq(
-        "mine_id", mine_id).not_.is_("latitude", "null").limit(200).execute().data or []
+    # Other mines that actually produce (0.5 MT a year or more), so their
+    # production is on a real basis.
+    others = sb.table("mines").select("mine_id, mine_name, latitude, longitude, production_2019_20_mt").neq(
+        "mine_id", mine_id).not_.is_("latitude", "null").gte(
+        "production_2019_20_mt", 0.5).limit(200).execute().data or []
     sample = [mine] + rng.sample(others, min(EXTRA_MINES, len(others)))
     seed_production(sample)
     seed_environment(sample)

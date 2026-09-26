@@ -1,5 +1,35 @@
 # Changes since the GitHub version
 
+## Round 4 — real monitoring data and lease boundaries (migration 12)
+
+| Area | Was | Now |
+|---|---|---|
+| River water quality | Yamuna stations only, nowhere near a coalfield | CPCB NWMP **2024**: all 1,555 stations parsed from the PDF; 66 on coal-belt rivers (Damodar, Barakar, Hasdeo, Kelo, Ib, Brahmani, Sone, Rihand, Wardha, Godavari, Kinnerasani…) placed on the map. Each mine shows its three nearest stations within 25 km (260 mines), checked against CPCB's criteria; oversight roles get a coal-belt table, worst first |
+| A mine's own monitoring | Synthetic readings only | **Pakri Barwadih (NTPC)**: 720 real readings, 183 days of its continuous air station from its EC compliance report, stored with the report as source. History does not raise live alerts |
+| Monitoring faults | Not detected | The page flags an analyser that repeats the same value for 5+ readings or reads zero. It found one straight away: Pakri Barwadih's PM10 is exactly 60.87 for 35 days and 0 for 13 |
+| Geo-fence | Circle around a point | Follows the **lease boundary** where one is loaded (inside, or within 250 m for GPS error); the map draws it. Jamuniya UG's lease extent from its EC report is loaded; `load_lease_boundary.py` adds a KML polygon for any mine and refuses one more than 25 km away |
+
+New files: `supabase/migration_12_real_monitoring.sql`, `supabase/load_real_monitoring.py`,
+`supabase/load_lease_boundary.py`, `supabase/raw_data/WQuality_River-Data-2024_parsed.csv`,
+`supabase/raw_data/nwmp_station_coordinates.csv`, `supabase/raw_data/pakri_barwadih_caaqms_2023-24.csv`,
+`frontend/components/RiverWater.js`. Changed: `frontend/pages/dashboard/operations.js`,
+`frontend/components/MineMap.js`, `tests/test_policies.py` (140 checks).
+
+## Round 3 — real data where it exists (migration 11)
+
+| Area | Was | Now |
+|---|---|---|
+| Production targets | Random 1,500–9,000 t a day | Each mine's **actual 2019-20 output ÷ 365** (Indian Coal Mines Dataset); the chart says which basis it uses. Mines with no meaningful output on record keep an illustrative target, labelled as such |
+| Ambient air quality | CPCB 2023 data loaded but linked to nothing | Every mine linked to its **nearest CPCB city within 60 km** (346 of 459 mines); Production & environment shows PM10, PM2.5, SO₂, NO₂ against the NAAQS annual limits, and oversight roles get a coal-belt table, worst city first |
+| Demo records | Contractors, grievances, attendance and inspections carried random subsidiaries; inspections sat hundreds of km from their mine; ~¼ resolved to no mine, so the alerts engine skipped them | All 415 rows attached to the real mine they name, under its real subsidiary; inspection GPS within 2 km of the mine (4 deliberately off-site for the geo-fence check). Nothing is skipped any more |
+| Charts | Switching mine left the production and environment charts blank | Fixed |
+
+New files: `supabase/migration_11_real_data.sql`, `supabase/apply_real_data.py`,
+`supabase/remap_mock_csvs.py` (the one-off that corrected the CSVs, kept for the record),
+`supabase/raw_data/cpcb_city_coordinates.csv`, `frontend/components/AmbientAir.js`.
+Changed: the four `raw_data/*_mock.csv` files, `load_seed_data.py`, `seed_field_operations.py`,
+`frontend/pages/dashboard/operations.js`, `tests/test_policies.py` (132 checks).
+
 ## Round 2 — closing the partly-done items (migration 10)
 
 | PS asks for | Was | Now |

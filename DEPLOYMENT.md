@@ -16,7 +16,8 @@ Deploy in this order. Each step depends on the one before it.
    `migration_04_view_security.sql`, `migration_05_flag_response.sql`,
    `migration_06_rls_hardening.sql`, `migration_07_field_operations.sql`,
    `migration_08_returns_and_audit_chain.sql`, `migration_09_predictions.sql`,
-   `migration_10_governance_completion.sql`.
+   `migration_10_governance_completion.sql`, `migration_11_real_data.sql`,
+   `migration_12_real_monitoring.sql`.
    Every migration is safe to re-run. Migration 07 also creates the private
    `evidence` storage bucket and adds the `alerts` table to Realtime.
 3. Go to **Settings → API** and copy three values you'll need later:
@@ -45,6 +46,8 @@ python seed_field_operations.py     # production, environment, attendance,
 python risk_scoring_job.py          # risk flags
 python predictive_job.py            # predictions + early warnings
 python alerts_engine.py             # alerts and escalation
+python load_real_monitoring.py      # CPCB river data 2024, Pakri Barwadih's own
+                                    # air readings, Jamuniya's lease extent
 python publish_audit_anchor.py      # confirms the audit chain is intact
 ```
 
@@ -153,6 +156,17 @@ For a project already running `schema.sql` + migrations 02–05:
 2. **Seed the new modules** (optional but recommended for demos):
    `python seed_compliance_history.py`, `python seed_field_operations.py`, then
    `risk_scoring_job.py`, `predictive_job.py`, `alerts_engine.py`.
+
+For a project already on migration 11, run only `migration_12_real_monitoring.sql`, then
+`python load_real_monitoring.py` (re-running adds nothing twice). To give a mine its
+surveyed lease boundary from a KML (PARIVESH / forest-clearance proposals), run
+`python load_lease_boundary.py path/to/file.kml "EXACT MINE NAME"`.
+
+For a project already on migration 10, run only `migration_11_real_data.sql`, then
+`python apply_real_data.py` (once; re-running changes nothing), then the three jobs.
+It stores each mine's real 2019-20 output, links every mine to its nearest CPCB
+air-quality city, and re-links the demo contractors, grievances, attendance and
+inspections to the real mines they name.
 
 For a project already on migration 09, run only `migration_10_governance_completion.sql`,
 then `seed_compliance_history.py`, `seed_field_operations.py` (it adds only the new

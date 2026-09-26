@@ -115,6 +115,7 @@ def load_mines_from_harvard_xlsx():
     rows = []
     for _, r in df.iterrows():
         owner = str(r.get("Coal Mine Owner Name", "")).strip()
+        output = r.get("Coal/ Lignite Production (MT) (2019-2020)")
         rows.append({
             "mine_id": str(uuid.uuid4()),
             "mine_name": str(r.get("Mine Name", "")).strip(),
@@ -127,6 +128,8 @@ def load_mines_from_harvard_xlsx():
             "latitude": r.get("Latitude "),
             "longitude": r.get("Longitude "),
             "geo_accuracy": r.get("Accuracy (exact vs approximate)"),
+            # Actual 2019-20 output (migration 11); daily targets are set from it.
+            "production_2019_20_mt": None if pd.isna(output) else round(float(output), 6),
             "source_reference": "Indian_Coal_Mines_Dataset_January_2021",
         })
     # batch insert, 500 rows at a time
@@ -163,7 +166,7 @@ _STOPWORDS = {"oc", "ug", "colliery", "collieries", "project", "proj", "mine", "
 
 
 def _normalize_mine_name(name: str) -> str:
-    return re.sub(r"[^a-z0-9 ]", " ", str(name).lower()).strip()
+    return " ".join(re.sub(r"[^a-z0-9 ]", " ", str(name).lower()).split())
 
 
 def _significant_tokens(name: str) -> list:
@@ -175,6 +178,12 @@ def build_mine_lookup():
     keeping each candidate's full token set for later Jaccard disambiguation."""
     data = supabase.table("mines").select("mine_id, mine_name").execute().data
     lookup = {}
+    # Exact names first: the corrected mock files name mines exactly as the
+    # mines dataset does, and an exact name needs no guessing.
+    exact = {}
+    for row in data:
+        exact.setdefault(_normalize_mine_name(row["mine_name"]), []).append(row["mine_id"])
+    lookup["__exact__"] = {k: v[0] for k, v in exact.items() if len(v) == 1}
     for row in data:
         toks = _significant_tokens(row["mine_name"])
         if not toks:
@@ -184,6 +193,9 @@ def build_mine_lookup():
 
 
 def find_mine_id(mine_lookup: dict, name: str):
+    hit = mine_lookup.get("__exact__", {}).get(_normalize_mine_name(name))
+    if hit:
+        return hit
     toks = _significant_tokens(name)
     if not toks:
         return None
@@ -530,12 +542,22 @@ def load_air_quality():
         print("SKIP: AIRQUALITY_DATA2023_transcribed.csv not found")
         return
     df = pd.read_csv(path)
+    # Coordinates for the coal-belt cities (migration 11), so each mine can
+    # be linked to its nearest CPCB station.
+    coords = {}
+    cpath = os.path.join(RAW_DIR, "cpcb_city_coordinates.csv")
+    if os.path.exists(cpath):
+        for c in pd.read_csv(cpath).itertuples():
+            coords[(c.city_town.strip().lower(), c.state.strip().lower())] = (c.latitude, c.longitude)
     rows = []
     for _, r in df.iterrows():
+        ll = coords.get((str(r["city_town"]).strip().lower(), str(r["state"]).strip().lower()))
         rows.append({
             "report_year": int(r["report_year"]),
             "state": r["state"],
             "city_town": r["city_town"],
+            "latitude": ll[0] if ll else None,
+            "longitude": ll[1] if ll else None,
             "so2_annual_avg": None if pd.isna(r["so2_annual_avg"]) else r["so2_annual_avg"],
             "no2_annual_avg": None if pd.isna(r["no2_annual_avg"]) else r["no2_annual_avg"],
             "pm10_annual_avg": None if pd.isna(r["pm10_annual_avg"]) else r["pm10_annual_avg"],
@@ -733,10 +755,13 @@ if __name__ == "__main__":
 #   history, occupational health, non-coal-mine stats -- is narrative/
 #   analytical rather than tabular-and-schema-shaped, and is a good
 #   candidate for AI-chat grounding context rather than a new table.
-# - AIRQUALITY_DATA2023_transcribed.csv covers all-India cities, not just
-#   coal-belt ones, and air_quality_records.mine_id is left null for every
-#   row -- linking specific stations to nearby mines (by district) is a
-#   manual/geo-matching pass for later, same as the schema comment notes.
+# - AIRQUALITY_DATA2023_transcribed.csv covers all-India cities. The ~50
+#   coal-belt cities get coordinates from cpcb_city_coordinates.csv
+#   (approximate town centres), and mine_air_quality_view (migration 11)
+#   links every mine to its nearest one within 60 km.
+# - The four *_mock.csv files were corrected by remap_mock_csvs.py: real
+#   mine names, each mine's real subsidiary, inspection GPS at the mine.
+#   The rows themselves remain synthetic.
 # - WQuality_Data-2025_transcribed.csv covers the Yamuna river monitoring
 #   network only (the only river in the source PDF) -- it's a general
 #   environmental-quality reference, not coal-mine-specific effluent data.

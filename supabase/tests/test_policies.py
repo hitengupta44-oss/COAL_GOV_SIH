@@ -477,6 +477,56 @@ def main():
     check("the third call inside the window is limited", hits == [False, False, True])
     check("users cannot call the rate limiter", refused(u["worker_a"], "select hit_rate_limit('x', 1, 60)"))
 
+    print("\nReal data (migration 11)")
+    admin("insert into air_quality_records (report_year, state, city_town, pm10_annual_avg, pm25_annual_avg, latitude, longitude) "
+          "values (2023,'Jharkhand','Testpur',148,68,23.79,86.43), (2023,'Kerala','Farcity',40,20,10.0,76.3)")
+    near = run(u["worker_a"], "select city_town, distance_km, pm10_exceeds from mine_air_quality_view where mine_id = %s", (A,))
+    check("a mine is linked to its nearest CPCB city", bool(near) and near[0][0] == "Testpur" and near[0][2] is True)
+    check("no city within 60 km means no link",
+          not run(u["worker_b"], "select 1 from mine_air_quality_view where mine_id = %s", (B,)))
+    belt = run(u["regulator"], "select mines_nearby from coalfield_air_quality_view where city_town = 'Testpur'")
+    check("coal-belt view counts the mines each city covers", bool(belt) and belt[0][0] >= 1)
+    admin("update mines set production_2019_20_mt = 3.65 where mine_id = %s", (A,))
+    admin("insert into mine_production_daily (mine_id, production_date, shift, coal_produced_t, target_t, is_synthetic) "
+          "values (%s, current_date - 40, 'A', 900, 1000, true)", (A,))
+    admin("select apply_real_data_links()")
+    tgt = admin("select target_t, coal_produced_t from mine_production_daily where mine_id = %s "
+                "and production_date = current_date - 40 and is_synthetic", (A,), fetch=True)[0]
+    check("demo production is rescaled to the mine's real output", float(tgt[0]) == 10000.0 and float(tgt[1]) == 9000.0)
+    admin("select apply_real_data_links()")
+    tgt2 = admin("select target_t from mine_production_daily where mine_id = %s "
+                 "and production_date = current_date - 40 and is_synthetic", (A,), fetch=True)[0]
+    check("rescaling a second time changes nothing", float(tgt2[0]) == 10000.0)
+    check("users cannot run the relinking function", refused(u["corporate"], "select apply_real_data_links()"))
+
+    print("\nMonitoring data and lease boundaries (migration 12)")
+    admin("insert into water_quality_records (report_year, station_code, monitoring_location, river, "
+          "dissolved_oxygen_min, ph_min, ph_max, bod_max, fecal_coliform_max, latitude, longitude) values "
+          "(2024,'T1','RIVER TEST AT ALPHA','Test',4.2,6.9,8.1,2.0,900,23.82,86.41), "
+          "(2024,'T2','RIVER FAR AWAY','Far',7,7,8,1,10,10.0,76.3)")
+    w = run(u["worker_a"], "select station_code, do_fails, criteria_failed from mine_water_quality_view where mine_id = %s", (A,))
+    check("a mine is linked to river stations within 25 km", [r[0] for r in w] == ["T1"])
+    check("a station failing CPCB's DO criterion is marked", bool(w) and w[0][1] is True and w[0][2] == 1)
+    admin("insert into env_readings (mine_id, reading_date, parameter, value, source_document) "
+          "values (%s, current_date - 400, 'PM10', 150, 'Test EC report')", (A,))
+    hist = admin("select count(*) from alerts where source_table = 'env_readings' and body like '%%150%%'", fetch=True)[0][0]
+    check("a breach copied from a published report is stored but raises no live alert", hist == 0)
+    check("users cannot pass a reading off as from a published report",
+          run(u["official_a"], "insert into env_readings (mine_id, reading_date, parameter, value, source_document) "
+              "values (%s, current_date, 'PM10', 50, 'Forged report') returning source_document", (A,))[0][0] is None)
+    admin("insert into mine_boundaries (mine_id, boundary, boundary_type, source) values "
+          "(%s, '[[23.79,86.39],[23.79,86.41],[23.81,86.41],[23.81,86.39],[23.79,86.39]]', 'Surveyed lease polygon', 'test')", (A,))
+    g_in = admin("select distance_m, within from geofence_check(%s, 23.80, 86.40)", (A,), fetch=True)[0]
+    g_edge = admin("select within from geofence_check(%s, 23.8115, 86.40)", (A,), fetch=True)[0][0]
+    g_out = admin("select distance_m, within from geofence_check(%s, 23.83, 86.40)", (A,), fetch=True)[0]
+    check("inside the lease polygon is at the mine", g_in[0] == 0 and g_in[1] is True)
+    check("just outside the boundary (under 250 m) is allowed for GPS error", g_edge is True)
+    check("2 km outside the lease is flagged, with distance to the boundary",
+          g_out[1] is False and 2000 < float(g_out[0]) < 2400)
+    check("only corporate can set a lease boundary",
+          refused(u["official_a"], "update mine_boundaries set source = 'x' where mine_id = %s returning 1", (A,))
+          or not run(u["official_a"], "update mine_boundaries set source = 'x' where mine_id = %s returning 1", (A,)))
+
     print("\nEvidence storage")
     check("upload into own mine's folder",
           bool(run(u["inspector_a"], "insert into storage.objects (bucket_id, name) values ('evidence', %s) returning 1",
