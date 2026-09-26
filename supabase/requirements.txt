@@ -13,6 +13,7 @@ openpyxl>=3.1.2
 groq>=0.11.0
 scikit-learn>=1.4   # predictive_job.py
 numpy>=1.26
+opentimestamps-client>=0.7   # publish_audit_anchor.py: Bitcoin anchoring
 
 # python-dotenv is no longer required -- the seed scripts prompt for
 # credentials instead (see credentials.py). Kept as an optional
