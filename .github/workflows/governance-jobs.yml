@@ -5,8 +5,9 @@
 # is kept by GitHub.
 #
 #   hourly  alerts_engine.py      overdue actions, alerts, escalation, email
-#           publish_audit_anchor  verifies the audit hash chain and records
-#                                 its head hash in the job summary
+#           publish_audit_anchor  verifies the audit hash chain, records its
+#                                 head hash in the job summary, and once a day
+#                                 anchors it in Bitcoin (OpenTimestamps)
 #   daily   risk_scoring_job.py   backward-looking risk flags
 #           predictive_job.py     forward-looking predictions + early warnings
 #
@@ -15,6 +16,9 @@
 #   GROQ_API_KEY                                optional (plain-English flag explanations)
 #   SMTP_HOST, SMTP_PORT, SMTP_USER,
 #   SMTP_PASSWORD, ALERT_EMAIL_FROM             optional (email notifications)
+#   ALERT_EMAIL_REDIRECT                        optional: send every alert email to this
+#                                               one inbox (for demos: the demo accounts'
+#                                               addresses are not real)
 #
 # Run any job by hand from the Actions tab ("Run workflow").
 
@@ -52,6 +56,7 @@ jobs:
       SMTP_USER: ${{ secrets.SMTP_USER }}
       SMTP_PASSWORD: ${{ secrets.SMTP_PASSWORD }}
       ALERT_EMAIL_FROM: ${{ secrets.ALERT_EMAIL_FROM }}
+      ALERT_EMAIL_REDIRECT: ${{ secrets.ALERT_EMAIL_REDIRECT }}
       DAILY: ${{ github.event.schedule == '30 0 * * *' || inputs.job == 'analytics' || inputs.job == 'all' }}
       HOURLY: ${{ github.event.schedule == '5 * * * *' || inputs.job == 'alerts' || inputs.job == 'all' }}
     steps:
