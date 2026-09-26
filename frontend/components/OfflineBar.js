@@ -1,8 +1,7 @@
 import { useEffect, useState } from "react";
 import { listQueue, syncQueue } from "../lib/offlineQueue";
 import { useAuth } from "../lib/useAuth";
-import { logFieldInspection } from "../lib/api";
-import { supabase } from "../lib/supabase";
+import { syncHandlers } from "../lib/fieldSync";
 
 // A standing indicator of connection state and anything waiting to be
 // sent.
@@ -18,23 +17,17 @@ export default function OfflineBar() {
   const [note, setNote] = useState(null);
 
   const refresh = async () => {
-    try { setPending((await listQueue()).length); } catch { /* no IndexedDB */ }
+    try {
+      const items = await listQueue();
+      setPending(items.filter((i) => !i.owner || i.owner === profile?.profile_id).length);
+    } catch { /* no IndexedDB */ }
   };
 
   const runSync = async () => {
     if (syncing) return;
     setSyncing(true);
     try {
-      const token = await getAccessToken();
-      const { sent, failed } = await syncQueue({
-        inspection: (p) => logFieldInspection(token, p),
-        grievance: async (p) => {
-          const { data, error } = await supabase.from("grievances").insert(p).select();
-          if (error) return { error: error.message };
-          if (!data?.length) return { error: "Rejected by the database." };
-          return {};
-        },
-      });
+      const { sent, failed } = await syncQueue(syncHandlers({ getAccessToken, profile }), { owner: profile?.profile_id });
       if (sent) setNote(`${sent} record${sent > 1 ? "s" : ""} sent.`);
       if (failed) setNote(`${failed} could not be sent. They are still saved on this device.`);
     } finally {

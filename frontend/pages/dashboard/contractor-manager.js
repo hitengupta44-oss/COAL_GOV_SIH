@@ -4,7 +4,113 @@ import Layout from "../../components/Layout";
 import ChatPanel from "../../components/ChatPanel";
 import MineMap from "../../components/MineMap";
 import AlertsPanel from "../../components/AlertsPanel";
-import { Card, StatStrip, Table, Badge, Button, Notice } from "../../components/ui";
+import { Card, StatStrip, Table, Badge, Button, Notice, Field } from "../../components/ui";
+import { PhotoInput, EvidenceLink } from "../../components/Evidence";
+import { uploadEvidence } from "../../lib/evidence";
+
+const DOC_TYPES = ["Safety training certificate", "Workmen compensation insurance", "PF registration",
+  "Contract labour licence", "ESI registration", "Blasting licence"];
+
+// Bringing a contractor onto the register, and recording their statutory
+// documents with the scanned copy attached. The database limits both to
+// the manager's own mine, and the audit trail records who added what.
+function AddContractor({ profile, onAdded }) {
+  const blank = { contractor_name: "", contract_type: "", contract_start: "", contract_end: "", contract_value_lakh_inr: "" };
+  const [f, setF] = useState(blank);
+  const [open, setOpen] = useState(false);
+  const [msg, setMsg] = useState(null);
+  const [busy, setBusy] = useState(false);
+  const set = (k) => (e) => setF({ ...f, [k]: e.target.value });
+
+  const save = async () => {
+    if (!f.contractor_name.trim()) return setMsg({ tone: "error", text: "Enter the contractor's name." });
+    if (f.contract_start && f.contract_end && f.contract_end < f.contract_start)
+      return setMsg({ tone: "error", text: "The contract cannot end before it starts." });
+    setBusy(true); setMsg(null);
+    const { error } = await supabase.from("contractors").insert({
+      contractor_name: f.contractor_name.trim(), contract_type: f.contract_type || null,
+      contract_start: f.contract_start || null, contract_end: f.contract_end || null,
+      contract_value_lakh_inr: f.contract_value_lakh_inr === "" ? null : Number(f.contract_value_lakh_inr),
+      mine_id: profile.mine_id, subsidiary_id: profile.subsidiary_id ?? null,
+      status: "Active", is_synthetic: false,
+    });
+    setBusy(false);
+    if (error) return setMsg({ tone: "error", text: error.message });
+    setMsg({ tone: "success", text: `${f.contractor_name} added. Record their documents next.` });
+    setF(blank);
+    onAdded();
+  };
+
+  if (!open) return <Button variant="secondary" onClick={() => setOpen(true)} style={{ marginBottom: 20 }}>Add a contractor</Button>;
+  return (
+    <Card title="Add a contractor">
+      {msg && <Notice tone={msg.tone}>{msg.text}</Notice>}
+      <div className="formgrid">
+        <Field label="Name"><input value={f.contractor_name} onChange={set("contractor_name")} /></Field>
+        <Field label="Scope of work"><input value={f.contract_type} onChange={set("contract_type")} placeholder="e.g. Overburden removal" /></Field>
+        <Field label="Contract starts"><input type="date" value={f.contract_start} onChange={set("contract_start")} /></Field>
+        <Field label="Contract ends"><input type="date" value={f.contract_end} onChange={set("contract_end")} /></Field>
+        <Field label="Value (₹ lakh)"><input type="number" min="0" value={f.contract_value_lakh_inr} onChange={set("contract_value_lakh_inr")} /></Field>
+      </div>
+      <Button onClick={save} disabled={busy}>{busy ? "Adding" : "Add contractor"}</Button>
+      <Button variant="quiet" style={{ marginLeft: 12 }} onClick={() => setOpen(false)}>Close</Button>
+    </Card>
+  );
+}
+
+function RecordDocument({ profile, contractors, onSaved }) {
+  const blank = { contractor_id: "", document_type: DOC_TYPES[0], reference_no: "", issued_on: "", valid_until: "" };
+  const [f, setF] = useState(blank);
+  const [file, setFile] = useState(null);
+  const [msg, setMsg] = useState(null);
+  const [busy, setBusy] = useState(false);
+  const set = (k) => (e) => setF({ ...f, [k]: e.target.value });
+  const mine = contractors.filter((c) => c.mine_id === profile.mine_id);
+
+  const save = async () => {
+    if (!f.contractor_id) return setMsg({ tone: "error", text: "Choose the contractor." });
+    if (!f.valid_until) return setMsg({ tone: "error", text: "Enter the date the document is valid until." });
+    setBusy(true); setMsg(null);
+    try {
+      const document_url = file ? await uploadEvidence(profile.mine_id, "contractor-documents", file) : null;
+      const { error } = await supabase.from("contractor_compliance").insert({
+        contractor_id: f.contractor_id, document_type: f.document_type, reference_no: f.reference_no || null,
+        issued_on: f.issued_on || null, valid_until: f.valid_until, document_url, status: "Valid",
+      });
+      if (error) throw new Error(error.message);
+      setMsg({ tone: "success", text: "Document recorded." });
+      setF({ ...blank, contractor_id: f.contractor_id }); setFile(null);
+      onSaved();
+    } catch (e) {
+      setMsg({ tone: "error", text: e.message });
+    } finally { setBusy(false); }
+  };
+
+  return (
+    <Card title="Record a document">
+      {msg && <Notice tone={msg.tone}>{msg.text}</Notice>}
+      <div className="formgrid">
+        <Field label="Contractor">
+          <select value={f.contractor_id} onChange={set("contractor_id")}>
+            <option value="">Choose</option>
+            {mine.map((c) => <option key={c.contractor_id} value={c.contractor_id}>{c.contractor_name}</option>)}
+          </select>
+        </Field>
+        <Field label="Document">
+          <select value={f.document_type} onChange={set("document_type")}>
+            {DOC_TYPES.map((d) => <option key={d}>{d}</option>)}
+          </select>
+        </Field>
+        <Field label="Reference no."><input value={f.reference_no} onChange={set("reference_no")} /></Field>
+        <Field label="Issued on"><input type="date" value={f.issued_on} onChange={set("issued_on")} /></Field>
+        <Field label="Valid until"><input type="date" value={f.valid_until} onChange={set("valid_until")} /></Field>
+      </div>
+      <PhotoInput value={file} onChange={setFile} accept="image/*,application/pdf" capture={false}
+        label="Scanned copy (photo or PDF)" />
+      <Button onClick={save} disabled={busy}>{busy ? "Saving" : "Record document"}</Button>
+    </Card>
+  );
+}
 import { useAuth } from "../../lib/useAuth";
 import { supabase } from "../../lib/supabase";
 
@@ -25,7 +131,7 @@ function ContractorContent() {
 
     const { data: d } = await supabase
       .from("contractor_compliance_view")
-      .select("contractor_name, document_type, computed_status, valid_until, days_to_expiry")
+      .select("contractor_name, document_type, computed_status, valid_until, days_to_expiry, document_url")
       .in("computed_status", ["Expired", "Expiring", "Missing"])
       .order("days_to_expiry", { nullsFirst: true })
       .limit(500);
@@ -75,6 +181,13 @@ function ContractorContent() {
 
       <AlertsPanel />
 
+      {profile?.mine_id && (
+        <>
+          <AddContractor profile={profile} onAdded={load} />
+          <RecordDocument profile={profile} contractors={list} onSaved={load} />
+        </>
+      )}
+
       <Card title="Documents needing attention">
         <p style={{ color: "var(--ink-soft)", fontSize: 14, marginTop: -4 }}>
           A contractor cannot lawfully put people on site with a lapsed safety
@@ -92,6 +205,7 @@ function ContractorContent() {
                 : `${d.days_to_expiry} days left` },
             { key: "computed_status", label: "Status", width: 110,
               render: (d) => <Badge>{d.computed_status === "Expiring" ? "Medium" : d.computed_status === "Expired" ? "Critical" : "High"}</Badge> },
+            { key: "document_url", label: "Copy", width: 70, render: (d) => <EvidenceLink path={d.document_url} /> },
           ]}
           rows={docs || []}
           countLabel="documents"

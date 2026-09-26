@@ -138,7 +138,13 @@ GROQ_API_KEY = os.environ.get("GROQ_API_KEY")
 supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY) if SUPABASE_URL and SUPABASE_KEY else None
 groq_client = Groq(api_key=GROQ_API_KEY) if GROQ_API_KEY else None
 
-GROQ_MODEL = os.environ.get("GROQ_MODEL", "llama-3.3-70b-versatile")
+# MODEL UPDATE: this used to default to "llama-3.3-70b-versatile", which
+# Groq deprecated on 2026-06-17 and DECOMMISSIONED on 2026-08-16 -- calls
+# to it are now rejected outright with a model_decommissioned error, which
+# surfaced here as a bare HTTP 500. Groq's recommended replacement for that
+# model is openai/gpt-oss-120b. Overridable via the GROQ_MODEL env var so a
+# future migration needs no code change.
+GROQ_MODEL = os.environ.get("GROQ_MODEL", "openai/gpt-oss-120b")
 
 
 def _write_audit_log(actor_uid: str, action: str, table_affected: str = None,
@@ -266,8 +272,13 @@ def _rate_limited(key: str, max_calls: int, window_seconds: int) -> bool:
 # 1. DASHBOARD SUMMARY -- corporate/regulator overview
 # ------------------------------------------------------------
 def get_dashboard_summary(access_token: str, subsidiary_filter: str = "All"):
-    """Returns aggregate KPIs: mine count, accident totals, open compliance items.
-    Requires a valid login (any role) -- this is business/safety data, not public."""
+    """Aggregate KPIs for the oversight dashboards.
+
+    Every figure honours the subsidiary filter. Previously only the mine
+    count did -- the fatal-accident and overdue figures stayed national
+    whatever was selected, so a filtered dashboard quietly mixed one
+    subsidiary's mine count with the whole country's problems.
+    Requires a valid login (any role) -- this is business/safety data."""
     if not supabase:
         return {"error": "Supabase not configured yet. Set SUPABASE_URL / SUPABASE_SERVICE_ROLE_KEY."}
 
@@ -275,25 +286,47 @@ def get_dashboard_summary(access_token: str, subsidiary_filter: str = "All"):
     if err:
         return err
 
-    mines_q = supabase.table("mines").select("mine_id", count="exact")
-    accidents_q = supabase.table("accidents").select("accident_id", count="exact").eq("severity", "Fatal")
-    compliance_q = supabase.table("compliance_tracking").select("tracking_id", count="exact").eq("status", "Overdue")
+    sid = None
+    if subsidiary_filter and subsidiary_filter != "All":
+        sub = supabase.table("subsidiaries").select("subsidiary_id").eq(
+            "subsidiary_code", subsidiary_filter).execute().data
+        if not sub:
+            return {"error": f"Unknown subsidiary '{subsidiary_filter}'."}
+        sid = sub[0]["subsidiary_id"]
 
-    if subsidiary_filter != "All":
-        sub = supabase.table("subsidiaries").select("subsidiary_id").eq("subsidiary_code", subsidiary_filter).execute().data
-        if sub:
-            sid = sub[0]["subsidiary_id"]
-            mines_q = mines_q.eq("subsidiary_id", sid)
+    def count(table, select, *filters, via_mine=False):
+        """Exact row count. Tables without their own subsidiary column are
+        filtered through an inner join to mines."""
+        q = supabase.table(table).select(select + (", mines!inner(subsidiary_id)" if via_mine and sid else ""),
+                                         count="exact")
+        for f in filters:
+            q = f(q)
+        if sid is not None:
+            q = q.eq("mines.subsidiary_id", sid) if via_mine else q.eq("subsidiary_id", sid)
+        try:
+            return q.limit(1).execute().count or 0
+        except Exception:
+            return None   # a missing table/view (migration not run) shows as a dash, not a crash
 
-    mines_count = mines_q.execute().count or 0
-    fatal_accidents = accidents_q.execute().count or 0
-    overdue_compliance = compliance_q.execute().count or 0
-
+    since = (datetime.date.today() - datetime.timedelta(days=30)).isoformat()
+    today = datetime.date.today().isoformat()
     return {
-        "total_mines": mines_count,
-        "fatal_accidents_recorded": fatal_accidents,
-        "overdue_compliance_items": overdue_compliance,
-        "filter_applied": subsidiary_filter,
+        "total_mines": count("mines", "mine_id"),
+        "fatal_accidents_recorded": count("accidents", "accident_id", lambda q: q.eq("severity", "Fatal")),
+        "overdue_compliance_items": count("compliance_tracking", "tracking_id",
+                                          lambda q: q.eq("status", "Overdue"), via_mine=True),
+        "overdue_corrective_actions": count("corrective_action_view", "inspection_id",
+                                            lambda q: q.neq("corrective_action_status", "Closed"),
+                                            lambda q: q.lt("action_due_date", today)),
+        "awaiting_verification": count("corrective_action_view", "inspection_id",
+                                       lambda q: q.eq("corrective_action_status", "Action Taken")),
+        "incidents_last_30_days": count("incident_view", "incident_id",
+                                        lambda q: q.gte("occurred_at", since)),
+        "dgms_notices_overdue": count("incident_view", "incident_id",
+                                      lambda q: q.eq("notice_overdue", True)),
+        "returns_awaiting_approval": count("statutory_return_view", "return_id",
+                                           lambda q: q.eq("status", "Submitted")),
+        "filter_applied": subsidiary_filter or "All",
     }
 
 
@@ -312,10 +345,32 @@ def get_high_risk_mines(access_token: str, limit: int = 10):
 
     limit = max(1, min(int(limit or 10), 100))  # clamp to a sane range
     flags = supabase.table("ai_risk_flags").select(
-        "mine_id, risk_score, flag_type, explanation"
+        "mine_id, risk_score, flag_type, explanation, response_status, response_note"
     ).order("risk_score", desc=True).limit(limit).execute().data
 
-    return flags if flags else {"message": "No risk flags generated yet. Run the analytics job first."}
+    if not flags:
+        return {"message": "No risk flags generated yet. Run the analytics job first."}
+
+    # Attach human-readable mine names. Without this the UI can only show
+    # raw uuids, which tell a reader nothing. Done as one batched lookup
+    # keyed by the ids we actually got back, rather than a per-row query.
+    mine_ids = list({f["mine_id"] for f in flags if f.get("mine_id")})
+    names = {}
+    if mine_ids:
+        try:
+            rows = supabase.table("mines").select(
+                "mine_id, mine_name, state"
+            ).in_("mine_id", mine_ids).execute().data
+            names = {r["mine_id"]: r for r in rows}
+        except Exception:
+            pass  # names are a nicety; still return the flags without them
+
+    for f in flags:
+        m = names.get(f.get("mine_id"))
+        f["mine_name"] = m["mine_name"] if m else None
+        f["state"] = m.get("state") if m else None
+
+    return flags
 
 
 # ------------------------------------------------------------
@@ -325,12 +380,26 @@ def get_high_risk_mines(access_token: str, limit: int = 10):
 # ------------------------------------------------------------
 def log_field_inspection(access_token: str, mine_id: str, latitude: float,
                           longitude: float, observation_type: str,
-                          severity: str, notes: str = ""):
-    """SECURITY FIX: inspector_id is no longer a caller-supplied field --
-    it's derived from the caller's own verified identity, so nobody can
-    log an inspection under someone else's name. Only inspectors,
-    mine_officials, contractor_managers, and admins may log inspections,
-    and mine-scoped roles can only log against their own mine."""
+                          severity: str, notes: str = "",
+                          photo_url: str = "", captured_at: str = ""):
+    """Records a geo-tagged inspection.
+
+    inspector_id is derived from the caller's verified identity, never from
+    the request, so nobody can file under someone else's name. Only
+    inspectors, mine officials, contractor managers and admins may log, and
+    mine-scoped roles only at their own mine.
+
+    captured_at: when the inspection was recorded on the device. An
+    inspection queued offline used to be stamped with the time it SYNCED,
+    which could be hours after it was made -- wrong on a statutory record.
+    A device time is accepted if it lies in the last 72 hours and not in
+    the future; otherwise the server time is used.
+
+    photo_url: storage path of the photo taken at the face (evidence
+    bucket, uploaded by the client under <mine_id>/...). Optional.
+
+    The response includes the database's geo-fence verdict, so the
+    inspector is told at once if their position does not match the mine."""
     if not supabase:
         return {"error": "Supabase not configured yet."}
 
@@ -349,37 +418,386 @@ def log_field_inspection(access_token: str, mine_id: str, latitude: float,
     if _rate_limited(f"log_inspection:{uid}", max_calls=30, window_seconds=3600):
         return {"error": "Rate limit exceeded -- too many inspections logged in the last hour."}
 
+    try:
+        latitude, longitude = float(latitude), float(longitude)
+    except (TypeError, ValueError):
+        return {"error": "latitude/longitude must be numbers."}
     if not (-90 <= latitude <= 90) or not (-180 <= longitude <= 180):
         return {"error": "latitude/longitude out of valid range."}
+    if severity not in ("Low", "Medium", "High", "Critical"):
+        return {"error": "severity must be Low, Medium, High or Critical."}
+
+    now = datetime.datetime.now(datetime.timezone.utc)
+    stamp = now
+    if captured_at:
+        try:
+            claimed = datetime.datetime.fromisoformat(str(captured_at).replace("Z", "+00:00"))
+            if claimed.tzinfo is None:
+                claimed = claimed.replace(tzinfo=datetime.timezone.utc)
+            if now - datetime.timedelta(hours=72) <= claimed <= now + datetime.timedelta(minutes=5):
+                stamp = claimed
+        except ValueError:
+            pass
+
+    # Evidence must sit in this mine's folder of the private bucket. A path
+    # pointing anywhere else is dropped rather than trusted.
+    photo = (photo_url or "").strip() or None
+    if photo and not photo.startswith(f"{mine_id}/"):
+        photo = None
 
     row = {
         "mine_id": mine_id,
-        "inspector_id": uid,  # derived from token, not client input
-        # BUG FIX: was the literal string "now()", which Postgres does not
-        # accept as a timestamp literal (only the bare word 'now' is a
-        # recognized special value) -- every insert was failing silently
-        # from the caller's perspective (Supabase returned an error that
-        # the old frontend code didn't even surface). Use a real timestamp.
-        "timestamp": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+        # geo_inspections.inspector_id references user_profiles(profile_id)
+        # -- not the auth uid -- and the RLS policy compares against it too.
+        "inspector_id": profile["profile_id"],
+        "timestamp": stamp.isoformat(),
         "latitude": latitude,
         "longitude": longitude,
         "observation_type": observation_type,
         "severity": severity,
         "notes": notes,
+        "photo_url": photo,
         "is_synthetic": False,
     }
     result = supabase.table("geo_inspections").insert(row).execute()
-    return {"status": "logged", "inspection": result.data}
+    saved = (result.data or [{}])[0]
+    return {
+        "status": "logged",
+        "inspection": result.data,
+        "within_geofence": saved.get("within_geofence"),
+        "distance_from_mine_m": saved.get("distance_from_mine_m"),
+        "action_due_date": saved.get("action_due_date"),
+        "backdated_from_device": stamp != now,
+    }
 
 
 # ------------------------------------------------------------
 # 4. AI CHAT / INSIGHTS -- Groq-powered assistant
 # ------------------------------------------------------------
+def _clip(text, n):
+    """Shortens free text for the prompt; the model needs the gist, not the essay."""
+    text = " ".join(str(text or "").split())
+    return text if len(text) <= n else text[: n - 1].rstrip() + "…"
+
+
+def _mine_names(ids):
+    """mine_id -> {mine_name, state} for a set of ids, in one query."""
+    ids = [i for i in set(ids) if i]
+    if not ids:
+        return {}
+    try:
+        rows = supabase.table("mines").select("mine_id, mine_name, state").in_("mine_id", ids).execute().data or []
+        return {r["mine_id"]: r for r in rows}
+    except Exception:
+        return {}
+
+
+def _build_chat_context(profile: dict) -> str:
+    """Assembles the live data snapshot handed to the model.
+
+    Everything here is SCOPED BY ROLE and mirrors the RLS policies in
+    supabase/: oversight roles (corporate_admin / regulator / admin) see
+    across all mines; mine-attached roles see only their own mine. The
+    backend queries with the service-role key, so this function IS the
+    access control for the assistant -- anything included here is
+    something the model can repeat back to the user.
+
+    Two fixes over the previous version:
+      * Mine scoping is applied IN THE QUERY. Risk flags and contractor
+        documents used to be fetched as a national top-N and then filtered
+        to the user's mine, so a mine outside the national top 8 got an
+        empty list and the assistant said there were no findings.
+      * Grievances follow the same privacy rule as the database: a worker
+        sees only what they filed, and only the mine official and
+        oversight see a mine's grievances. Previously any worker at a mine
+        could ask the assistant to read out colleagues' complaints.
+
+    Row counts are capped -- this is a prompt, not a report.
+    """
+    if not supabase:
+        return ""
+
+    role = profile.get("role")
+    mine_id = profile.get("mine_id")
+    wide = role in ("corporate_admin", "regulator", "admin")
+    if not wide and not mine_id:
+        return ("\n\nDATA SNAPSHOT: this user has no mine assigned, so there is no "
+                "mine data they are allowed to see. Say so if asked about a mine.")
+
+    parts = []
+    today = datetime.date.today()
+
+    def scoped(query):
+        return query if wide else query.eq("mine_id", mine_id)
+
+    def section(fn):
+        try:
+            text = fn()
+            if text:
+                parts.append(text)
+        except Exception:
+            pass   # one unavailable source must not silence the rest
+
+    def label(names, mid):
+        m = names.get(mid) or {}
+        return f"{m.get('mine_name', 'Unknown mine')} ({m.get('state', '?')})"
+
+    def totals():
+        t = {
+            "overdue_compliance_items": scoped(supabase.table("compliance_tracking").select(
+                "tracking_id", count="exact").eq("status", "Overdue")).limit(1).execute().count or 0,
+        }
+        if wide:
+            t["mines"] = supabase.table("mines").select("mine_id", count="exact").limit(1).execute().count or 0
+            t["fatal_accidents_on_record"] = supabase.table("accidents").select(
+                "accident_id", count="exact").eq("severity", "Fatal").limit(1).execute().count or 0
+        return f"Totals: {json.dumps(t)}"
+
+    def flags():
+        rows = scoped(supabase.table("ai_risk_flags").select(
+            "mine_id, risk_score, flag_type, explanation, response_status, response_note")
+        ).order("risk_score", desc=True).limit(12 if wide else 8).execute().data or []
+        if not rows:
+            return "Risk flags: none raised" + ("." if wide else " against this mine.")
+        names = _mine_names(r["mine_id"] for r in rows)
+        return "Risk flags (highest first):\n" + "\n".join(
+            f"- {label(names, f['mine_id'])}: {f['flag_type']}, risk {f['risk_score']}. "
+            f"{_clip(f.get('explanation'), 220)} Mine's response: {f.get('response_status') or 'Open'}"
+            + (f" — {_clip(f['response_note'], 120)}" if f.get("response_note") else "")
+            for f in rows)
+
+    def overdue_breadth():
+        if not wide:
+            return None
+        # Paged: PostgREST returns at most 1,000 rows per request, and a
+        # single capped request undercounted the mines affected.
+        agg, page = [], 0
+        while True:
+            chunk = supabase.table("compliance_tracking").select("mine_id").eq(
+                "status", "Overdue").range(page * 1000, page * 1000 + 999).execute().data or []
+            agg.extend(chunk)
+            if len(chunk) < 1000 or page >= 30:
+                break
+            page += 1
+        counts = {}
+        for r in agg:
+            counts[r["mine_id"]] = counts.get(r["mine_id"], 0) + 1
+        top = sorted(counts.items(), key=lambda kv: kv[1], reverse=True)[:10]
+        if not top:
+            return None
+        names = _mine_names(m for m, _ in top)
+        return (f"Overdue compliance by mine ({len(counts)} mines affected; showing the {len(top)} worst):\n"
+                + "\n".join(f"- {label(names, mid)}: {c} overdue items" for mid, c in top))
+
+    def overdue_sample():
+        rows = scoped(supabase.table("compliance_tracking").select(
+            "mine_id, due_date, statutory_compliance_items(requirement_summary, category, regulation_source)"
+        ).eq("status", "Overdue")).order("due_date").limit(10).execute().data or []
+        if not rows:
+            return None
+        names = _mine_names(r["mine_id"] for r in rows)
+        return ("SAMPLE of overdue obligations, oldest first (not the full list):\n" + "\n".join(
+            f"- {label(names, o['mine_id'])}: {(o.get('statutory_compliance_items') or {}).get('category', '?')} | "
+            f"due {o.get('due_date')} | {(o.get('statutory_compliance_items') or {}).get('regulation_source', '')} — "
+            f"{(o.get('statutory_compliance_items') or {}).get('requirement_summary', '')}"
+            for o in rows))
+
+    def predictions():
+        rows = scoped(supabase.table("compliance_prediction_view").select(
+            "mine_name, state, requirement_summary, regulation_source, due_date, probability, top_factors")
+        ).order("probability", desc=True).limit(10).execute().data or []
+        if not rows:
+            return None
+        return ("PREDICTED to slip (model estimate, pending items not yet overdue):\n" + "\n".join(
+            f"- {r['mine_name']} ({r['state']}): {r['requirement_summary']} due {r['due_date']}, "
+            f"{round(float(r['probability']) * 100)}% likely to be missed. Main factors: "
+            + ", ".join(f.get("factor", "") for f in (r.get("top_factors") or [])[:3])
+            for r in rows))
+
+    def actions():
+        rows = scoped(supabase.table("corrective_action_view").select(
+            "mine_name, state, observation_type, severity, corrective_action_status, action_due_date, "
+            "days_left, within_geofence, reopened_count, notes")
+        ).neq("corrective_action_status", "Closed").order("action_due_date").limit(12).execute().data or []
+        if not rows:
+            return "Corrective actions: every inspection finding is closed."
+        return ("Open inspection findings and their corrective action (earliest deadline first):\n" + "\n".join(
+            f"- {r['mine_name']}: {r['observation_type']} ({r['severity']}), status {r['corrective_action_status']}, "
+            f"action due {r['action_due_date']}"
+            + (f" — {abs(r['days_left'])} days late" if (r.get("days_left") or 0) < 0 else "")
+            + (f", reopened {r['reopened_count']}x after failed verification" if r.get("reopened_count") else "")
+            + (", RECORDED OUTSIDE THE MINE GEO-FENCE" if r.get("within_geofence") is False else "")
+            + f". {_clip(r.get('notes'), 120)}".rstrip()
+            for r in rows))
+
+    def incidents():
+        since = (today - datetime.timedelta(days=90)).isoformat()
+        rows = scoped(supabase.table("incident_view").select(
+            "mine_name, state, incident_type, severity, occurred_at, status, persons_killed, persons_injured, "
+            "notifiable, dgms_notified, notice_overdue, root_cause")
+        ).gte("occurred_at", since).order("occurred_at", desc=True).limit(12).execute().data or []
+        if not rows:
+            return "Incidents in the last 90 days: none reported."
+        return ("Incidents in the last 90 days:\n" + "\n".join(
+            f"- {r['occurred_at'][:10]} {r['mine_name']}: {r['incident_type']} ({r['severity']}), "
+            f"{r['persons_killed']} killed / {r['persons_injured']} injured, status {r['status']}"
+            + (", DGMS NOTICE OVERDUE" if r.get("notice_overdue") else
+               (", DGMS notified" if r.get("dgms_notified") else (", DGMS notice pending" if r.get("notifiable") else "")))
+            + (f", root cause: {r['root_cause']}" if r.get("root_cause") else "")
+            for r in rows))
+
+    def environment():
+        since = (today - datetime.timedelta(days=30)).isoformat()
+        rows = scoped(supabase.table("env_readings").select(
+            "mine_id, reading_date, parameter, value, limit_max, limit_min, station_label")
+        ).eq("exceeds_limit", True).gte("reading_date", since).order("reading_date", desc=True).limit(12).execute().data or []
+        if not rows:
+            return None
+        names = _mine_names(r["mine_id"] for r in rows)
+        return ("Environmental readings above statutory limits (last 30 days):\n" + "\n".join(
+            f"- {r['reading_date']} {label(names, r['mine_id'])}: {r['parameter']} {r['value']} "
+            f"(limit {r.get('limit_max') if r.get('limit_max') is not None else 'min ' + str(r.get('limit_min'))})"
+            + (f" at {r['station_label']}" if r.get("station_label") else "")
+            for r in rows))
+
+    def production():
+        since = (today - datetime.timedelta(days=30)).isoformat()
+        rows = scoped(supabase.table("production_anomaly_view").select(
+            "mine_id, production_date, produced_t, target_t, z_score, pct_of_target, is_anomaly")
+        ).gte("production_date", since).order("production_date", desc=True).limit(400).execute().data or []
+        if not rows:
+            return None
+        names = _mine_names(r["mine_id"] for r in rows)
+        total = sum(float(r["produced_t"] or 0) for r in rows)
+        target = sum(float(r["target_t"] or 0) for r in rows)
+        odd = [r for r in rows if r.get("is_anomaly")][:8]
+        text = (f"Production, last 30 days: {round(total):,} t reported against a target of {round(target):,} t"
+                + (f" ({round(100 * total / target, 1)}%)" if target else "") + ".")
+        if odd:
+            text += "\nDays flagged as anomalous (z-score vs the mine's trailing 30 days):\n" + "\n".join(
+                f"- {r['production_date']} {label(names, r['mine_id'])}: {r['produced_t']} t, z = {r['z_score']}"
+                for r in odd)
+        return text
+
+    def attendance():
+        if role not in ("corporate_admin", "regulator", "admin", "mine_official", "inspector"):
+            return None
+        since = (today - datetime.timedelta(days=7)).isoformat()
+        rows = scoped(supabase.table("attendance_checkins").select(
+            "mine_id, check_in_within_geofence, check_out_within_geofence")
+        ).gte("check_in_at", since).limit(5000).execute().data or []
+        if not rows:
+            return None
+        exc = sum(1 for r in rows if r.get("check_in_within_geofence") is False
+                  or r.get("check_out_within_geofence") is False)
+        return f"Attendance, last 7 days: {len(rows)} check-ins, {exc} recorded outside the mine geo-fence."
+
+    def grievances():
+        if role == "worker":
+            rows = supabase.table("grievances").select("category, status, date_filed, resolution_note").eq(
+                "filed_by", profile.get("profile_id")).order("date_filed", desc=True).limit(10).execute().data or []
+            if not rows:
+                return "This worker has not filed any grievances."
+            return ("Grievances THIS USER filed (they may see only their own):\n" + "\n".join(
+                f"- {g['date_filed']} {g['category']}: {g['status']}"
+                + (f" — outcome: {g['resolution_note']}" if g.get("resolution_note") else "")
+                for g in rows))
+        if not (wide or role == "mine_official"):
+            return None   # other mine roles may not read colleagues' grievances
+        rows = scoped(supabase.table("grievance_status_view").select(
+            "mine_id, category, status, date_filed, priority, is_overdue, days_remaining")
+        ).neq("status", "Resolved").order("date_filed", desc=True).limit(12).execute().data or []
+        if not rows:
+            return None
+        names = _mine_names(r["mine_id"] for r in rows)
+        # Categories and deadlines only: the complaint text itself stays out
+        # of the prompt, as it stays out of the audit trail.
+        return ("Open grievances (category and deadline only):\n" + "\n".join(
+            f"- {label(names, g['mine_id'])}: {g['category']} ({g.get('priority') or 'unprioritised'}), "
+            f"filed {g['date_filed']}, {g['status']}"
+            + (f", {abs(g.get('days_remaining') or 0)} days past deadline" if g.get("is_overdue") else "")
+            for g in rows))
+
+    def contractor_docs():
+        rows = scoped(supabase.table("contractor_compliance_view").select(
+            "contractor_name, document_type, computed_status, days_to_expiry")
+        ).in_("computed_status", ["Expired", "Expiring", "Missing"]).order(
+            "days_to_expiry", nullsfirst=True).limit(12).execute().data or []
+        if not rows:
+            return None
+        return ("Contractor documents needing attention (sample):\n" + "\n".join(
+            f"- {d['contractor_name']}: {d['document_type']} — {d['computed_status']}"
+            + (f", {abs(d['days_to_expiry'])} days {'overdue' if d['days_to_expiry'] < 0 else 'left'}"
+               if d.get("days_to_expiry") is not None else "")
+            for d in rows))
+
+    def returns():
+        if not (wide or role == "mine_official"):
+            return None
+        q = scoped(supabase.table("statutory_return_view").select(
+            "mine_name, return_type, period_start, status, review_note"))
+        if role == "regulator":
+            q = q.eq("status", "Approved")
+        rows = q.order("period_start", desc=True).limit(10).execute().data or []
+        if not rows:
+            return None
+        return ("Statutory returns:\n" + "\n".join(
+            f"- {r['mine_name']}: {r['return_type']} for {str(r['period_start'])[:7]} — {r['status']}"
+            + (f" (sent back: {r['review_note']})" if r.get("status") == "Returned" and r.get("review_note") else "")
+            for r in rows))
+
+    for fn in (totals, flags, overdue_breadth, overdue_sample, predictions, actions, incidents,
+               environment, production, attendance, grievances, contractor_docs, returns):
+        section(fn)
+
+    scope_note = ("You can see data across ALL mines."
+                  if wide else "You can only see data for this user's own assigned mine.")
+    truncation_note = (
+        "Lists below are capped for length. Where a total is given, trust the "
+        "total over the number of rows you can see, and never describe a list "
+        "as complete or exhaustive unless a total confirms it.")
+    return ("\n\nDATA SNAPSHOT (live, already access-filtered, as of " + today.isoformat() + "). "
+            + scope_note + " " + truncation_note + "\n" + "\n\n".join(parts))
+
+
 SYSTEM_PROMPT = """You are the AI assistant embedded in a Smart Governance Platform
-for Indian coal mining operations. You help mine officials, corporate management,
-and regulators understand compliance status, safety trends, and operational data.
-Be precise, cite specific numbers when given data context, and flag when you don't
-have enough data to answer confidently. Keep answers concise and actionable."""
+for Indian coal mining operations, used by mine officials, corporate management,
+regulators, inspectors and workers.
+
+You are given a DATA SNAPSHOT below, pulled live from the platform database and
+already filtered to what this particular user is allowed to see. Treat it as
+ground truth.
+
+How to answer:
+- Name specific mines, states, figures and dates from the snapshot. Do not give
+  a generic answer when the snapshot contains the actual records.
+- Go beyond restating rows: compare mines against each other, point out which
+  numbers are unusual and why, connect a compliance gap to the accident or
+  environmental record at the same site, and say what it implies.
+- Lead with the direct answer, then the reasoning behind it, then what the user
+  should do about it. Reference the specific regulation or requirement where the
+  snapshot gives you one.
+- Quantify where you can ("5 fatal accidents against a 1.59 average") rather
+  than saying "several" or "a high number".
+- If the snapshot genuinely lacks what was asked, say exactly which field is
+  missing and answer as far as the data allows -- do not invent mine names,
+  figures or dates under any circumstances.
+- Lists in the snapshot are capped samples, not complete extracts. Never say
+  a list is exhaustive or that "no other mine appears" -- if a total is given
+  alongside a sample, cite the total for breadth and treat the named rows as
+  examples. Saying "the worst affected are X and Y, out of N mines with
+  overdue items" is correct; saying "only X has overdue items" is not.
+- Write in plain prose for a busy official. A short list is fine when the answer
+  really is a list; avoid heavy nested formatting.
+
+LANGUAGE
+Reply in the same language the user wrote in. Indian coalfields are worked by
+people who speak Hindi, Bengali, Odia, Telugu and Jharkhandi languages, and a
+worker asking about their safety entitlements in Hindi should get the answer in
+Hindi. Keep statutory names, regulation numbers and mine names in their official
+form -- translate the explanation, not the identifiers, because a worker who has
+to raise the matter with an official needs the term the official will recognise.
+If a question mixes languages, follow the one the question is mostly written in."""
 
 
 def chat_with_data_assistant(access_token: str, user_message: str, history: list = None):
@@ -395,13 +813,7 @@ def chat_with_data_assistant(access_token: str, user_message: str, history: list
     if _rate_limited(f"chat:{uid}", max_calls=20, window_seconds=600):
         return "Rate limit exceeded -- please wait a bit before sending more messages."
 
-    context = ""
-    if supabase:
-        try:
-            summary = get_dashboard_summary(access_token)
-            context = f"\n\nCurrent platform snapshot: {json.dumps(summary)}"
-        except Exception:
-            pass
+    context = _build_chat_context(profile)
 
     messages = [{"role": "system", "content": SYSTEM_PROMPT + context}]
     if history:
@@ -410,13 +822,27 @@ def chat_with_data_assistant(access_token: str, user_message: str, history: list
             messages.append({"role": "assistant", "content": turn[1]})
     messages.append({"role": "user", "content": user_message})
 
-    response = groq_client.chat.completions.create(
-        model=GROQ_MODEL,
-        messages=messages,
-        temperature=0.3,
-        max_tokens=800,
-    )
-    return response.choices[0].message.content
+    # Wrapped so an API-side failure (bad key, decommissioned model, rate
+    # limit, outage) comes back as a readable message in the chat instead of
+    # an unhandled exception that Gradio turns into an opaque HTTP 500.
+    try:
+        response = groq_client.chat.completions.create(
+            model=GROQ_MODEL,
+            messages=messages,
+            # Slightly higher temperature and a bigger budget than the
+            # original 0.3/800: the assistant is now expected to compare
+            # sites and explain reasoning, not just restate a figure, and
+            # answers were getting truncated mid-analysis at 800.
+            temperature=0.4,
+            max_tokens=1600,
+        )
+        return response.choices[0].message.content
+    except Exception as e:
+        return (
+            f"The assistant is unavailable right now ({type(e).__name__}: {e}). "
+            f"Model in use: {GROQ_MODEL}. If this mentions a decommissioned "
+            f"model, set the GROQ_MODEL secret on the Space to a current one."
+        )
 
 
 # ------------------------------------------------------------
@@ -450,7 +876,8 @@ def get_compliance_status(access_token: str, mine_id: str):
 #    an item Completed/Pending/Overdue instead of compliance_tracking only
 #    ever being seedable data.
 # ------------------------------------------------------------
-def update_compliance_status(access_token: str, tracking_id: str, new_status: str, remarks: str = ""):
+def update_compliance_status(access_token: str, tracking_id: str, new_status: str, remarks: str = "",
+                             evidence_url: str = ""):
     """SECURITY FIX: this used to be a fully open write endpoint. Now
     requires login, restricts by role, and restricts mine-scoped roles to
     only their own mine's compliance rows."""
@@ -486,11 +913,21 @@ def update_compliance_status(access_token: str, tracking_id: str, new_status: st
     if mine_err:
         return mine_err
 
+    # Evidence of completion (a challan, a test certificate, a photo) is
+    # stored in the private evidence bucket under the mine's own folder.
+    # A path outside that folder is refused rather than trusted.
+    evidence = (evidence_url or "").strip() or None
+    if evidence and not evidence.startswith(f"{existing[0]['mine_id']}/"):
+        return {"error": "Evidence must be uploaded to this mine's folder."}
+
     update_values = {
         "status": new_status,
         "remarks": remarks or None,
         "completed_date": datetime.date.today().isoformat() if new_status == "Completed" else None,
+        "submitted_by": profile["profile_id"],
     }
+    if evidence:
+        update_values["evidence_url"] = evidence
     result = supabase.table("compliance_tracking").update(update_values).eq(
         "tracking_id", tracking_id
     ).execute()
@@ -504,7 +941,8 @@ def update_compliance_status(access_token: str, tracking_id: str, new_status: st
         action="update_compliance_status",
         table_affected="compliance_tracking",
         record_id=tracking_id,
-        details={"new_status": new_status, "remarks": remarks},
+        details={"new_status": new_status, "remarks": remarks, "evidence": bool(evidence),
+                 "mine_id": existing[0]["mine_id"]},
     )
     return result.data[0]
 
@@ -663,11 +1101,14 @@ with gr.Blocks(title="Coal Mining Governance Platform - Backend") as demo:
             label="Observation Type")
         severity_in = gr.Dropdown(["Low", "Medium", "High", "Critical"], label="Severity")
         notes_in = gr.Textbox(label="Notes", lines=3)
+        photo_in = gr.Textbox(label="Photo storage path (optional, <mine_id>/...)")
+        captured_in = gr.Textbox(label="Captured at, ISO time (optional, for offline records)")
         log_btn = gr.Button("Submit Inspection")
         log_output = gr.JSON()
         log_btn.click(
             log_field_inspection,
-            inputs=[token_3, mine_id_in, lat_in, lon_in, obs_type_in, severity_in, notes_in],
+            inputs=[token_3, mine_id_in, lat_in, lon_in, obs_type_in, severity_in, notes_in,
+                    photo_in, captured_in],
             outputs=log_output,
             api_name="log_field_inspection",
         )
@@ -688,7 +1129,30 @@ with gr.Blocks(title="Coal Mining Governance Platform - Backend") as demo:
         # wrapper (needed for the Chatbot UI's history format), so without
         # an explicit api_name Gradio would expose this as /api/respond
         # instead, which wouldn't match what frontend/lib/api.js calls.
-        msg.submit(respond, [token_4, msg, chatbot], [msg, chatbot], api_name="chat_with_data_assistant")
+        # The UI event and the REST endpoint are deliberately separate now.
+        #
+        # `respond` exists for the Chatbot widget and returns TWO outputs:
+        # ("", updated_history) -- the empty string clears the input box.
+        # When this event carried api_name="chat_with_data_assistant", the
+        # REST response was {"data": ["", [[...]]]} and lib/api.js, which
+        # reads data[0], got that empty string instead of the reply. The
+        # chat looked like it answered with nothing.
+        #
+        # So the UI event is now excluded from the API (api_name=False), and
+        # the endpoint below is bound to chat_with_data_assistant directly,
+        # which returns a single string. Hidden components exist only to
+        # give the event something to bind to.
+        msg.submit(respond, [token_4, msg, chatbot], [msg, chatbot], api_name=False)
+
+        api_chat_in = gr.Textbox(visible=False)
+        api_chat_out = gr.Textbox(visible=False)
+        api_chat_btn = gr.Button(visible=False)
+        api_chat_btn.click(
+            chat_with_data_assistant,
+            inputs=[token_4, api_chat_in, chatbot],
+            outputs=api_chat_out,
+            api_name="chat_with_data_assistant",
+        )
         clear.click(lambda: None, None, chatbot, queue=False, api_name=False)
 
     with gr.Tab("Compliance Status"):
@@ -704,9 +1168,11 @@ with gr.Blocks(title="Coal Mining Governance Platform - Backend") as demo:
         tracking_id_in = gr.Textbox(label="Tracking ID (UUID)")
         status_in = gr.Dropdown(["Completed", "Pending", "Overdue", "Not Applicable"], label="New Status")
         remarks_in = gr.Textbox(label="Remarks", lines=2)
+        evidence_in = gr.Textbox(label="Evidence storage path (optional, <mine_id>/...)")
         update_btn = gr.Button("Update Status")
         update_output = gr.JSON()
-        update_btn.click(update_compliance_status, inputs=[token_6, tracking_id_in, status_in, remarks_in], outputs=update_output,
+        update_btn.click(update_compliance_status, inputs=[token_6, tracking_id_in, status_in, remarks_in, evidence_in],
+                         outputs=update_output,
                          api_name="update_compliance_status")
 
     with gr.Tab("Admin: Pending Signups"):
@@ -736,4 +1202,19 @@ with gr.Blocks(title="Coal Mining Governance Platform - Backend") as demo:
         )
 
 if __name__ == "__main__":
-    demo.queue().launch(server_name="0.0.0.0", server_port=7860)
+    # api_open=True is REQUIRED for the frontend to work.
+    #
+    # Gradio's built-in REST route (POST /api/<api_name>) is gated behind
+    # the queue's `api_open` flag. When it is False -- which it can default
+    # to once demo.queue() is enabled, and which is what a Hugging Face
+    # Space was doing here -- Gradio answers a perfectly valid, registered
+    # endpoint with a bare 404. That is indistinguishable from "wrong URL"
+    # from the caller's side: GET still returns 405 Method Not Allowed
+    # (proving the path exists), while POST returns 404.
+    #
+    # Setting it True explicitly opens the REST API to the Vercel frontend.
+    # Security is unaffected: every function verifies the caller's Supabase
+    # token and role itself (see _authenticate), and the RLS policies in
+    # supabase/schema.sql enforce access at the database layer too. The
+    # endpoints were never relying on being hard to reach.
+    demo.queue(api_open=True).launch(server_name="0.0.0.0", server_port=7860)

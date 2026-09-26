@@ -66,6 +66,12 @@ export const logFieldInspection = (accessToken, payload) =>
     payload.observationType,
     payload.severity,
     payload.notes || "",
+    // Storage path of the photo taken at the face (evidence bucket).
+    payload.photoPath || "",
+    // When the inspection was made on the device. For a record queued
+    // offline this is hours before it syncs, and the statutory record
+    // must carry the real time.
+    payload.capturedAt || "",
   ]);
 
 export const getComplianceStatus = (accessToken, mineId) =>
@@ -74,8 +80,8 @@ export const getComplianceStatus = (accessToken, mineId) =>
 // NOTE: actorUid is no longer sent -- the backend logs the audit entry
 // using the uid derived from accessToken, which is more trustworthy than a
 // client-supplied value anyway.
-export const updateComplianceStatus = (accessToken, trackingId, newStatus, remarks = "") =>
-  callBackend("update_compliance_status", [accessToken, trackingId, newStatus, remarks]);
+export const updateComplianceStatus = (accessToken, trackingId, newStatus, remarks = "", evidencePath = "") =>
+  callBackend("update_compliance_status", [accessToken, trackingId, newStatus, remarks, evidencePath]);
 
 export const chatWithAssistant = (accessToken, message, history = []) =>
   callBackend("chat_with_data_assistant", [accessToken, message, history]);

@@ -104,6 +104,12 @@ export function AuthProvider({ children }) {
     try {
       await supabase.auth.signOut();
     } finally {
+      // Cached API responses belong to the person signing out.
+      try {
+        navigator.serviceWorker?.controller?.postMessage("clear-data");
+        const keys = await caches.keys();
+        await Promise.all(keys.filter((k) => k.startsWith("data-")).map((k) => caches.delete(k)));
+      } catch { /* no service worker or cache API: nothing cached */ }
       setUser(null);
       setProfile(null);
       setLoading(false);

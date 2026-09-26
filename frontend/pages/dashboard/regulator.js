@@ -6,16 +6,15 @@ import MineMap from "../../components/MineMap";
 import ReportPanel from "../../components/ReportPanel";
 import GrievanceOverview from "../../components/GrievanceOverview";
 import AlertsPanel from "../../components/AlertsPanel";
+import Link from "next/link";
 import { Card, StatStrip, Table, Badge, Notice } from "../../components/ui";
 import { useAuth } from "../../lib/useAuth";
 import { getDashboardSummary, getHighRiskMines } from "../../lib/api";
-import { supabase } from "../../lib/supabase";
 
 function RegulatorContent() {
   const { getAccessToken } = useAuth();
   const [summary, setSummary] = useState(null);
   const [risk, setRisk] = useState(null);
-  const [auditLog, setAuditLog] = useState(null);
   const [error, setError] = useState(null);
 
   useEffect(() => {
@@ -30,12 +29,6 @@ function RegulatorContent() {
         setError(String(e.message || e));
       }
     })();
-    supabase
-      .from("audit_log")
-      .select("action, table_affected, details, timestamp")
-      .order("timestamp", { ascending: false })
-      .limit(300)
-      .then(({ data }) => setAuditLog(data || []));
   }, []);
 
   const scoreTone = (s) => (s >= 0.9 ? "Critical" : s >= 0.7 ? "High" : s >= 0.4 ? "Medium" : "Low");
@@ -49,6 +42,14 @@ function RegulatorContent() {
           { label: "Mines on record", value: summary?.total_mines ?? "—" },
           { label: "Fatal accidents recorded", value: summary?.fatal_accidents_recorded ?? "—", tone: "critical" },
           { label: "Overdue compliance items", value: summary?.overdue_compliance_items ?? "—", tone: "high" },
+        ]}
+      />
+      <StatStrip
+        items={[
+          { label: "Corrective actions past deadline", value: summary?.overdue_corrective_actions ?? "—", tone: "high" },
+          { label: "Incidents, last 30 days", value: summary?.incidents_last_30_days ?? "—" },
+          { label: "DGMS accident notices overdue", value: summary?.dgms_notices_overdue ?? "—",
+            tone: summary?.dgms_notices_overdue ? "critical" : null },
         ]}
       />
 
@@ -75,24 +76,14 @@ function RegulatorContent() {
         />
       </Card>
 
-      <Card title="Compliance activity trail">
-        <Table
-          columns={[
-            { key: "timestamp", label: "When", width: 170, nowrap: true,
-              render: (r) => (r.timestamp ? new Date(r.timestamp).toLocaleString() : "—") },
-            { key: "action", label: "Action" },
-            { key: "table_affected", label: "Record" },
-            { key: "details", label: "Detail",
-              render: (r) => (
-                <span style={{ color: "var(--ink-soft)" }}>
-                  {r.details ? JSON.stringify(r.details) : "—"}
-                </span>
-              ) },
-          ]}
-          rows={auditLog || []}
-          countLabel="entries"
-          empty="No changes recorded yet. Entries appear here when a mine official updates a compliance item."
-        />
+      <Card title="Records and proof">
+        <p style={{ fontSize: 14, color: "var(--ink-soft)", margin: 0 }}>
+          The <Link href="/dashboard/audit">audit trail</Link> lists every change with who made it, and can prove
+          the record has not been altered. <Link href="/dashboard/returns">Statutory returns</Link> appear once
+          corporate management has approved them, each with a content fingerprint.{" "}
+          <Link href="/dashboard/actions">Corrective actions</Link> and <Link href="/dashboard/incidents">incidents</Link>{" "}
+          are visible across every mine.
+        </p>
       </Card>
 
       <GrievanceOverview mode="regulator" />

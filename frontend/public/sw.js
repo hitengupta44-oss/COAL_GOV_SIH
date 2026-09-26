@@ -9,9 +9,17 @@
 // it until they resurface is how field observations get lost or
 // reconstructed from memory hours later.
 
-const VERSION = "v1";
+const VERSION = "v2";
 const SHELL = `shell-${VERSION}`;
 const DATA = `data-${VERSION}`;
+const LIBS = `libs-${VERSION}`;
+
+// Libraries the field screens load on demand: OCR (and its English and
+// Hindi language data), the map, PDF generation and fonts. Versioned URLs
+// never change, so cache-first is safe -- and it is what lets OCR and the
+// map work at a pit head with no signal once they have been used once.
+const LIB_HOSTS = ["cdn.jsdelivr.net", "cdnjs.cloudflare.com", "unpkg.com",
+                   "tessdata.projectnaptha.com", "fonts.googleapis.com", "fonts.gstatic.com"];
 
 // The pages a field user might open with no signal. Assets are cached as
 // they are fetched rather than listed here, because Next.js fingerprints
@@ -22,6 +30,10 @@ const SHELL_URLS = [
   "/dashboard/inspector",
   "/dashboard/worker",
   "/dashboard/manager",
+  "/dashboard/attendance",
+  "/dashboard/incidents",
+  "/dashboard/actions",
+  "/dashboard/operations",
   "/login",
   "/offline",
   "/manifest.json",
@@ -54,7 +66,23 @@ self.addEventListener("fetch", (event) => {
 
   // Never cache authentication or the backend API. A stale token check or
   // a cached "you have no alerts" would be worse than an honest failure.
-  if (url.pathname.includes("/auth/") || url.hostname.endsWith("hf.space")) return;
+  // Never cache sign-in, the backend, or evidence files (private, and
+  // served through short-lived signed links).
+  if (url.pathname.includes("/auth/") || url.pathname.includes("/storage/")
+      || url.hostname.endsWith("hf.space")) return;
+
+  if (LIB_HOSTS.includes(url.hostname)) {
+    event.respondWith(
+      caches.match(request).then((hit) => hit || fetch(request).then((res) => {
+        if (res.ok || res.type === "opaque") {
+          const copy = res.clone();
+          caches.open(LIBS).then((c) => c.put(request, copy));
+        }
+        return res;
+      }))
+    );
+    return;
+  }
 
   // Supabase reads: network first, fall back to the last good copy so a
   // dashboard still shows yesterday's compliance list rather than an
@@ -99,6 +127,12 @@ self.addEventListener("fetch", (event) => {
 // connection. The queue itself lives in IndexedDB on the page side --
 // the worker only needs to prompt.
 self.addEventListener("message", (event) => {
+  // On logout the page asks for cached records to be dropped, so the next
+  // person to use a shared device does not see the last person's data.
+  if (event.data === "clear-data") {
+    caches.keys().then((keys) => keys.filter((k) => k.startsWith("data-")).forEach((k) => caches.delete(k)));
+    return;
+  }
   if (event.data === "sync-queue") {
     self.clients.matchAll().then((cs) => cs.forEach((c) => c.postMessage("sync-queue")));
   }

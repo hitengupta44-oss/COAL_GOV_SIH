@@ -1,0 +1,20 @@
+# Version ranges rather than hard pins, so pip can pick a build that has
+# prebuilt wheels for whatever Python version you're on.
+#
+# WHY: pandas was previously pinned to ==2.2.2, which has no wheels for
+# Python 3.13+. On a newer interpreter pip fell back to compiling it from
+# source and failed with "metadata-generation-failed". pandas 2.2.3 added
+# 3.13 wheels, and the 2.3.x line covers 3.14, so a floor plus an open
+# ceiling avoids the problem on any recent Python.
+
+supabase>=2.7.4
+pandas>=2.2.3
+openpyxl>=3.1.2
+groq>=0.11.0
+scikit-learn>=1.4   # predictive_job.py
+numpy>=1.26
+
+# python-dotenv is no longer required -- the seed scripts prompt for
+# credentials instead (see credentials.py). Kept as an optional
+# convenience if you'd rather use a .env file locally.
+# python-dotenv>=1.0.1

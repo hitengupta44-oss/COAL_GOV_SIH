@@ -1,52 +1,23 @@
----
-title: Coal Mining Governance Backend
+title: Coal Governance Platform Backend
 emoji: ⛏️
-colorFrom: gray
-colorTo: blue
+colorFrom: yellow
+colorTo: red
 sdk: gradio
 sdk_version: 4.44.0
 app_file: app.py
 pinned: false
----
+Coal Mining Governance Platform — Backend
+Deploy: push this folder's contents to a new Hugging Face Space (SDK: Gradio). Add these as Repository secrets under Space Settings:
 
-# Coal Mining Smart Governance Platform — Backend API
+SUPABASE_URL
+SUPABASE_SERVICE_ROLE_KEY
+GROQ_API_KEY
+GROQ_MODEL (optional — defaults to llama-3.3-70b-versatile, swap in your fine-tuned model slug once ready)
+ADMIN_SECRET_KEY — shared secret gating list_pending_signups/approve_user_role (the admin approval flow). Pick any long random string; the frontend's NEXT_PUBLIC_ADMIN_API_KEY must match it exactly.
+SUPABASE_ANON_KEY — used to verify caller access tokens. Supabase Dashboard → Settings → API → anon public key. Kept separate from the service-role key so token verification always runs with the least-privileged key.
+Once live, your Space URL is: https://<your-username>-<space-name>.hf.space
 
-This Space is the backend for the Coal Mining Smart Governance Platform.
-The Gradio tabs are a manual testing console; the frontend (deployed on
-Vercel) calls the same functions over Gradio's built-in REST route at
-`/api/<function_name>`.
+Each function in app.py is auto-exposed as an API endpoint the frontend can call — see frontend/lib/api.js for the calling convention.
 
-## Endpoints
-
-| Function | Who can call it |
-|---|---|
-| `get_dashboard_summary` | any logged-in user |
-| `get_high_risk_mines` | any logged-in user |
-| `get_compliance_status` | own mine; corporate/regulator/admin see all |
-| `update_compliance_status` | mine_official (own mine), corporate_admin, admin |
-| `log_field_inspection` | inspector, mine_official, contractor_manager, admin |
-| `chat_with_data_assistant` | any logged-in user (rate limited) |
-| `list_pending_signups` | admin only |
-| `approve_user_role` | admin only |
-
-Every endpoint requires a Supabase Auth access token as its first
-argument. The backend verifies the token against the same Supabase
-project and looks up the caller's role in `user_profiles`.
-
-## Required secrets
-
-Set these under Settings → Repository secrets:
-
-- `SUPABASE_URL`
-- `SUPABASE_SERVICE_ROLE_KEY` — privileged queries; bypasses RLS
-- `SUPABASE_ANON_KEY` — used only to verify caller tokens
-- `GROQ_API_KEY` — powers the chat assistant
-
-`GROQ_MODEL` is optional and defaults to `llama-3.3-70b-versatile`.
-
-## Hardware
-
-Runs on ZeroGPU. The app never uses a GPU — `app.py` defines a no-op
-`@spaces.GPU` function purely to satisfy the ZeroGPU startup check, so it
-consumes none of the daily quota. The `spaces` package in
-`requirements.txt` is required for this.
+If the build fails after editing requirements.txt
+The sdk_version: 4.44.0 in this file's YAML header above must always match the gradio==... pin at the top of requirements.txt. HF Spaces installs gradio[oauth]==<sdk_version> itself, on top of whatever's in requirements.txt — if the two don't match, pip fails immediately with "Cannot install gradio==X and gradio==Y because these package versions have conflicting dependencies," before it even gets to real dependency resolution. If you ever bump gradio, change it in both places. See the comments throughout requirements.txt for why several other versions (pydantic, starlette/fastapi, huggingface_hub, realtime/ websockets) are pinned the way they are — each one was a real deploy failure, root-caused and verified before being pinned, not guessed.

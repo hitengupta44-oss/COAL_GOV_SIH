@@ -5,6 +5,10 @@ import ChatPanel from "../../components/ChatPanel";
 import OcrCapture from "../../components/OcrCapture";
 import MineMap from "../../components/MineMap";
 import { Card, Table, Badge, Field, Button, Notice } from "../../components/ui";
+import { PhotoInput, EvidenceLink, GeoBadge } from "../../components/Evidence";
+import { useT } from "../../lib/i18n";
+import { getPosition, isOnline, formatDistance } from "../../lib/geo";
+import { uploadEvidence } from "../../lib/evidence";
 import { useAuth } from "../../lib/useAuth";
 import { logFieldInspection } from "../../lib/api";
 import { supabase } from "../../lib/supabase";
@@ -15,6 +19,8 @@ const OBSERVATIONS = ["Safety Equipment Check", "Ventilation Inspection", "Slope
 
 function InspectorContent() {
   const { profile, getAccessToken } = useAuth();
+  const { t } = useT();
+  const [photo, setPhoto] = useState(null);
   const [obsType, setObsType] = useState(OBSERVATIONS[0]);
   const [severity, setSeverity] = useState("Low");
   const [notes, setNotes] = useState("");
@@ -26,7 +32,8 @@ function InspectorContent() {
     if (!profile?.mine_id) return;
     const { data } = await supabase
       .from("geo_inspections")
-      .select("observation_type, severity, notes, timestamp, latitude, longitude")
+      .select("observation_type, severity, notes, timestamp, latitude, longitude, photo_url, "
+            + "within_geofence, distance_from_mine_m, corrective_action_status")
       .eq("mine_id", profile.mine_id)
       .order("timestamp", { ascending: false })
       .limit(300);
@@ -46,102 +53,108 @@ function InspectorContent() {
 
   // Location is captured rather than typed: the point of a geo-tagged
   // inspection is that the coordinates come from the device at the site,
-  // not from whatever the inspector types afterwards.
+  // not from whatever the inspector types afterwards. The capture time
+  // travels with the record, so one sent hours later from a queue still
+  // carries the time it was actually made.
   const submit = async () => {
-    if (!profile?.mine_id) return setStatus({ tone: "error", text: "No mine assigned to your account. Ask an administrator to set one." });
-    if (!navigator.geolocation) return setStatus({ tone: "error", text: "This device can't provide a location, which is required for a geo-tagged inspection." });
-
+    if (!profile?.mine_id) return setStatus({ tone: "error", text: t("noMine") });
     setSubmitting(true);
-    setStatus({ tone: "info", text: "Getting your location." });
-    const token = await getAccessToken();
+    setStatus({ tone: "info", text: t("location.getting") });
 
-    navigator.geolocation.getCurrentPosition(
-      async (pos) => {
-        const record = {
-          mineId: profile.mine_id,
-          latitude: pos.coords.latitude,
-          longitude: pos.coords.longitude,
-          observationType: obsType,
-          severity,
-          notes,
-        };
+    let pos;
+    try {
+      pos = await getPosition();
+    } catch (e) {
+      setSubmitting(false);
+      return setStatus({ tone: "error", text: e.code === "refused" ? t("location.refused") : t("location.none") });
+    }
 
-        // With no signal the record is stored on the device rather than
-        // lost. The coordinates were captured at the face, so the
-        // geo-tag stays truthful even though it is sent hours later.
-        if (typeof navigator !== "undefined" && !navigator.onLine) {
-          try {
-            await enqueue("inspection", record);
-            setStatus({ tone: "info", text:
-              `Saved on this device at ${pos.coords.latitude.toFixed(5)}, ${pos.coords.longitude.toFixed(5)}. `
-              + "It will be sent when you have a signal." });
-            setNotes("");
-          } catch (e) {
-            setStatus({ tone: "error", text: `Could not save offline: ${e.message || e}` });
-          } finally { setSubmitting(false); }
-          return;
-        }
+    const record = {
+      mineId: profile.mine_id,
+      latitude: pos.latitude,
+      longitude: pos.longitude,
+      observationType: obsType,
+      severity,
+      notes,
+      capturedAt: new Date().toISOString(),
+    };
+    const reset = () => { setNotes(""); setPhoto(null); };
 
-        try {
-          const res = await logFieldInspection(token, record);
-          if (res?.error) setStatus({ tone: "error", text: res.error });
-          else {
-            setStatus({ tone: "success", text: `Recorded at ${pos.coords.latitude.toFixed(5)}, ${pos.coords.longitude.toFixed(5)}.` });
-            setNotes("");
-            loadRecent();
-          }
-        } catch (e) {
-          // Being "online" is not the same as reaching the server. A
-          // failed request queues rather than discarding the finding.
-          try {
-            await enqueue("inspection", record);
-            setStatus({ tone: "info", text:
-              "Could not reach the server, so this is saved on your device and will be sent later." });
-            setNotes("");
-          } catch {
-            setStatus({ tone: "error", text: String(e.message || e) });
-          }
-        } finally { setSubmitting(false); }
-      },
-      () => {
-        setStatus({ tone: "error", text: "Location access was refused. Allow it to record a geo-tagged inspection." });
-        setSubmitting(false);
-      },
-      { enableHighAccuracy: true, timeout: 15000 }
-    );
+    // With no signal the record -- photo included -- is stored on the
+    // device rather than lost.
+    const queue = async (why) => {
+      await enqueue("inspection", { ...record, photoBlob: photo || null }, profile?.profile_id);
+      setStatus({ tone: "info", text: why });
+      reset();
+    };
+
+    try {
+      if (!isOnline()) {
+        await queue(`${t("savedOffline")} (${pos.latitude.toFixed(5)}, ${pos.longitude.toFixed(5)})`);
+        return;
+      }
+      const token = await getAccessToken();
+      const photoPath = photo ? await uploadEvidence(profile.mine_id, "inspections", photo) : "";
+      const res = await logFieldInspection(token, { ...record, photoPath });
+      if (res?.error) {
+        setStatus({ tone: "error", text: res.error });
+      } else {
+        const where = res.within_geofence === false
+          ? ` This position is ${formatDistance(res.distance_from_mine_m)} from the mine's recorded location, so it has been flagged for review.`
+          : "";
+        setStatus({
+          tone: res.within_geofence === false ? "error" : "success",
+          text: `Recorded at ${pos.latitude.toFixed(5)}, ${pos.longitude.toFixed(5)}. `
+            + (res.action_due_date ? `Corrective action due ${res.action_due_date}.` : "") + where,
+        });
+        reset();
+        loadRecent();
+      }
+    } catch (e) {
+      // Being "online" is not the same as reaching the server. A failed
+      // request queues rather than discarding the finding.
+      try {
+        await queue("Could not reach the server, so this is saved on your device and will be sent later.");
+      } catch {
+        setStatus({ tone: "error", text: String(e.message || e) });
+      }
+    } finally {
+      setSubmitting(false);
+    }
   };
 
   return (
-    <Layout title="Inspections" subtitle="">
-      <Card title="From a paper sheet" style={{ maxWidth: 560 }}>
+    <Layout title={t("insp.title")} subtitle="">
+      <Card title={t("insp.fromPaper")} style={{ maxWidth: 560 }}>
         <OcrCapture onExtract={applyExtract} />
       </Card>
 
-      <Card title="Record an inspection" style={{ maxWidth: 560 }}>
+      <Card title={t("insp.record")} style={{ maxWidth: 560 }}>
         {status && <Notice tone={status.tone}>{status.text}</Notice>}
-        <Field label="Observation">
+        <Field label={t("insp.observation")}>
           <select value={obsType} onChange={(e) => setObsType(e.target.value)}>
             {OBSERVATIONS.map((o) => <option key={o} value={o}>{o}</option>)}
           </select>
         </Field>
-        <Field label="Severity">
+        <Field label={t("insp.severity")}>
           <select value={severity} onChange={(e) => setSeverity(e.target.value)}>
             {["Low", "Medium", "High", "Critical"].map((s) => <option key={s} value={s}>{s}</option>)}
           </select>
         </Field>
-        <Field label="Notes">
+        <Field label={t("insp.notes")}>
           <textarea rows={3} value={notes} onChange={(e) => setNotes(e.target.value)}
-            placeholder="What did you observe?" />
+            placeholder={t("insp.notesHint")} />
         </Field>
+        <PhotoInput value={photo} onChange={setPhoto} />
         <Button onClick={submit} disabled={submitting}>
-          {submitting ? "Recording" : "Record inspection"}
+          {submitting ? t("insp.recording") : t("insp.submit")}
         </Button>
         <p style={{ fontSize: 13, color: "var(--ink-faint)", margin: "10px 0 0" }}>
-          Your location is captured automatically when you record.
+          {t("insp.locHint")}
         </p>
       </Card>
 
-      <Card title="Recorded at this mine">
+      <Card title={t("insp.recent")}>
         <Table
           columns={[
             { key: "timestamp", label: "When", width: 170, nowrap: true,
@@ -149,6 +162,11 @@ function InspectorContent() {
             { key: "observation_type", label: "Observation" },
             { key: "severity", label: "Severity", width: 110, render: (r) => <Badge>{r.severity}</Badge> },
             { key: "notes", label: "Notes", render: (r) => r.notes || "—" },
+            { key: "geo", label: "Location", width: 150,
+              render: (r) => <GeoBadge within={r.within_geofence} distance={r.distance_from_mine_m} /> },
+            { key: "photo", label: "Photo", width: 70, render: (r) => <EvidenceLink path={r.photo_url} /> },
+            { key: "action", label: "Action", width: 120,
+              render: (r) => <Badge>{r.corrective_action_status || "Open"}</Badge> },
           ]}
           rows={recent}
           countLabel="inspections"

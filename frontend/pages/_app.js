@@ -1,6 +1,7 @@
 import React, { useEffect } from "react";
 import Head from "next/head";
 import { AuthProvider } from "../lib/useAuth";
+import { LanguageProvider } from "../lib/i18n";
 import "../styles/globals.css";
 
 // Next.js replaces any uncaught render error in production with a bare
@@ -100,9 +101,11 @@ export default function App({ Component, pageProps }) {
         <meta name="apple-mobile-web-app-title" content="Mine Governance" />
         <title>Coal Mine Governance</title>
       </Head>
-      <AuthProvider>
-        <Component {...pageProps} />
-      </AuthProvider>
+      <LanguageProvider>
+        <AuthProvider>
+          <Component {...pageProps} />
+        </AuthProvider>
+      </LanguageProvider>
     </ErrorBoundary>
   );
 }

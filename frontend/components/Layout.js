@@ -4,20 +4,27 @@ import { useEffect, useState } from "react";
 import { useAuth } from "../lib/useAuth";
 import { supabase } from "../lib/supabase";
 import OfflineBar from "./OfflineBar";
+import { useT } from "../lib/i18n";
 
 // Nav is built per role rather than shown-and-disabled, because a
 // regulator has no use for knowing a contractor screen exists. Every
 // entry here is a page that role can actually open; RoleGuard enforces
 // the same rules server of the router, so the nav can't be used to reach
 // anything the guard would reject.
+const A = ["/dashboard/actions", "nav.actions"];
+const I = ["/dashboard/incidents", "nav.incidents"];
+const T = ["/dashboard/attendance", "nav.attendance"];
+const O = ["/dashboard/operations", "nav.operations"];
+const R = ["/dashboard/returns", "nav.returns"];
+const U = ["/dashboard/audit", "nav.audit"];
 const NAV = {
-  admin: [["/dashboard/admin", "User access"]],
-  corporate_admin: [["/dashboard/corporate", "Overview"]],
-  regulator: [["/dashboard/regulator", "Oversight"]],
-  mine_official: [["/dashboard/manager", "Mine operations"]],
-  inspector: [["/dashboard/inspector", "Inspections"]],
-  contractor_manager: [["/dashboard/contractor-manager", "Contractors"]],
-  worker: [["/dashboard/worker", "My mine"]],
+  admin: [["/dashboard/admin", "nav.users"], U],
+  corporate_admin: [["/dashboard/corporate", "nav.overview"], A, I, O, R, U],
+  regulator: [["/dashboard/regulator", "nav.oversight"], A, I, O, R, U],
+  mine_official: [["/dashboard/manager", "nav.mineOps"], A, I, T, O, R],
+  inspector: [["/dashboard/inspector", "nav.inspections"], A, I, T, O],
+  contractor_manager: [["/dashboard/contractor-manager", "nav.contractors"], I, T],
+  worker: [["/dashboard/worker", "nav.myMine"], T, I],
 };
 
 const ROLE_LABEL = {
@@ -32,6 +39,7 @@ const ROLE_LABEL = {
 
 export default function Layout({ title, subtitle, children }) {
   const { profile, logout } = useAuth();
+  const { t, lang, setLang } = useT();
   const router = useRouter();
   const [mine, setMine] = useState(null);
 
@@ -87,7 +95,7 @@ export default function Layout({ title, subtitle, children }) {
               className="navlink"
               aria-current={router.pathname === href ? "page" : undefined}
             >
-              {label}
+              {t(label)}
             </Link>
           ))}
         </div>
@@ -97,6 +105,16 @@ export default function Layout({ title, subtitle, children }) {
           <div style={{ fontSize: 12.5, color: "#8FA2B4", marginBottom: 10 }}>
             {ROLE_LABEL[profile?.role] || profile?.role}
           </div>
+          <button
+            onClick={() => setLang(lang === "hi" ? "en" : "hi")}
+            lang={lang === "hi" ? "en" : "hi"}
+            style={{
+              display: "block", background: "none", border: "none", padding: 0, marginBottom: 10,
+              color: "#C9D4DE", cursor: "pointer", textDecoration: "underline", textUnderlineOffset: 2,
+            }}
+          >
+            {t("language")}
+          </button>
           <button
             onClick={() => {
               // Errors here are swallowed on purpose: whatever happens to
@@ -113,7 +131,7 @@ export default function Layout({ title, subtitle, children }) {
               cursor: "pointer",
             }}
           >
-            Log out
+            {t("logout")}
           </button>
         </div>
       </nav>

@@ -7,12 +7,14 @@ import { Card, Table, Badge, Field, Button, Notice } from "../../components/ui";
 import { useAuth } from "../../lib/useAuth";
 import { supabase } from "../../lib/supabase";
 import { enqueue } from "../../lib/offlineQueue";
+import { useT } from "../../lib/i18n";
 
 const CATEGORIES = ["Wages/Payment Delay", "Safety Equipment Shortage", "Housing/Welfare",
   "Working Hours", "Harassment/Conduct", "Medical Facility", "Transport"];
 
 function WorkerContent() {
   const { profile } = useAuth();
+  const { t } = useT();
   const [category, setCategory] = useState(CATEGORIES[0]);
   const [description, setDescription] = useState("");
   const [status, setStatus] = useState(null);
@@ -34,8 +36,8 @@ function WorkerContent() {
 
   const file = async () => {
     setStatus(null);
-    if (!description.trim()) return setStatus({ tone: "error", text: "Describe the issue before submitting." });
-    if (!profile?.mine_id) return setStatus({ tone: "error", text: "No mine assigned to your account. Ask an administrator to set one." });
+    if (!description.trim()) return setStatus({ tone: "error", text: t("worker.needText") });
+    if (!profile?.mine_id) return setStatus({ tone: "error", text: t("noMine") });
 
     setSaving(true);
     const row = {
@@ -51,10 +53,9 @@ function WorkerContent() {
 
     if (typeof navigator !== "undefined" && !navigator.onLine) {
       try {
-        await enqueue("grievance", row);
+        await enqueue("grievance", row, profile?.profile_id);
         setSaving(false);
-        setStatus({ tone: "info", text:
-          "Saved on this device. It will be filed when you have a signal." });
+        setStatus({ tone: "info", text: t("savedOffline") });
         setDescription("");
       } catch (e) {
         setSaving(false);
@@ -68,48 +69,48 @@ function WorkerContent() {
 
     if (error) return setStatus({ tone: "error", text: `Could not file this grievance: ${error.message}` });
     if (!data?.length) return setStatus({ tone: "error", text: "The grievance was not saved. You may not have permission to file at this mine." });
-    setStatus({ tone: "success", text: "Filed. Your mine official can see it now." });
+    setStatus({ tone: "success", text: t("worker.filed") });
     setDescription("");
     loadMine();
   };
 
   return (
-    <Layout title="My mine" subtitle="">
-      <Card title="Raise a grievance" style={{ maxWidth: 560 }}>
+    <Layout title={t("worker.title")} subtitle="">
+      <Card title={t("worker.raise")} style={{ maxWidth: 560 }}>
         {status && <Notice tone={status.tone}>{status.text}</Notice>}
-        <Field label="What is this about?">
+        <Field label={t("worker.about")}>
           <select value={category} onChange={(e) => setCategory(e.target.value)}>
-            {CATEGORIES.map((c) => <option key={c} value={c}>{c}</option>)}
+            {CATEGORIES.map((c) => <option key={c} value={c}>{t(`cat.${c}`)}</option>)}
           </select>
         </Field>
-        <Field label="Describe the issue">
+        <Field label={t("worker.describe")}>
           <textarea rows={4} value={description} onChange={(e) => setDescription(e.target.value)}
-            placeholder="Give as much detail as you can." />
+            placeholder={t("worker.describeHint")} />
         </Field>
-        <Button onClick={file} disabled={saving}>{saving ? "Filing" : "File grievance"}</Button>
+        <Button onClick={file} disabled={saving}>{saving ? t("worker.filing") : t("worker.file")}</Button>
       </Card>
 
-      <Card title="Grievances you have filed">
+      <Card title={t("worker.yours")}>
         <Table
           columns={[
-            { key: "date_filed", label: "Filed", width: 110, nowrap: true },
-            { key: "category", label: "Category", width: 190 },
-            { key: "description", label: "Detail" },
-            { key: "status", label: "Status", width: 120, render: (r) => <Badge>{r.status}</Badge> },
+            { key: "date_filed", label: t("worker.filedOn"), width: 110, nowrap: true },
+            { key: "category", label: t("worker.category"), width: 190, render: (r) => t(`cat.${r.category}`) },
+            { key: "description", label: t("worker.detail") },
+            { key: "status", label: t("status"), width: 120, render: (r) => <Badge>{r.status}</Badge> },
             // Showing the outcome, not just the status, is the point of
             // filing: a worker should be able to see what was actually
             // done about their complaint without asking anyone.
-            { key: "resolution_note", label: "Outcome",
+            { key: "resolution_note", label: t("worker.outcome"),
               render: (r) => r.resolution_note
                 ? <span>{r.resolution_note}</span>
                 : <span style={{ color: "var(--ink-faint)" }}>
-                    {r.status === "Escalated" ? "Escalated for review" : "Being looked at"}
+                    {r.status === "Escalated" ? t("worker.escalated") : t("worker.beingLooked")}
                   </span> },
           ]}
           rows={mine}
           countLabel="grievances"
           severityOf={(r) => r.status}
-          empty="You haven't filed anything yet. Use the form above to raise an issue."
+          empty={t("worker.none")}
         />
       </Card>
 

@@ -8,7 +8,7 @@
    this is a risk platform, so a reader should be able to scan for
    trouble without reading any text.
    --------------------------------------------------------------- */
-@import url("https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&display=swap");
+@import url("https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=Noto+Sans+Devanagari:wght@400;500;600&display=swap");
 
 :root {
   --ink: #16212B;          /* anthracite: sidebar, headings */
@@ -121,3 +121,23 @@ input:focus, select:focus, textarea:focus, button:focus-visible, a:focus-visible
 @media (prefers-reduced-motion: reduce) {
   * { animation: none !important; transition: none !important; }
 }
+
+/* Devanagari: IBM Plex Sans has no Hindi glyphs, so Hindi text falls back
+   to Noto Sans Devanagari rather than to whatever the device happens to have. */
+html[lang="hi"] body { font-family: "IBM Plex Sans", "Noto Sans Devanagari", system-ui, sans-serif; }
+
+/* Text-style buttons for secondary actions inside tables and forms. */
+.linkish {
+  background: none; border: none; padding: 0; color: var(--primary);
+  cursor: pointer; font-size: 14px; text-decoration: underline; text-underline-offset: 2px;
+}
+.linkish:disabled { color: var(--ink-faint); cursor: default; }
+
+/* Two-column form rows that stack on a phone. */
+.formgrid { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 0 16px; }
+
+/* Segmented control for filters (period, view). */
+.segmented { display: inline-flex; border: 1px solid var(--line-strong); border-radius: var(--radius); overflow: hidden; }
+.segmented button { background: var(--surface); border: none; padding: 6px 12px; cursor: pointer; color: var(--ink-soft); }
+.segmented button + button { border-left: 1px solid var(--line-strong); }
+.segmented button[aria-pressed="true"] { background: var(--primary); color: #fff; }

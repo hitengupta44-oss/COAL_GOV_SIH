@@ -1,0 +1,76 @@
+grievance_id,date_filed,mine,subsidiary,category,description_short,status,days_to_resolve,escalated
+GRV0001,2025-05-03,Kusmunda OC,BCCL,Working Hours,Worker-reported issue via mobile app,Escalated,,Yes
+GRV0002,2025-07-02,Jhanjhara Project Colly,BCCL,Housing/Welfare,Worker-reported issue via mobile app,Escalated,,Yes
+GRV0003,2025-06-05,Madhusudanpur Colliery,SECL,Harassment/Conduct,Worker-reported issue via mobile app,Resolved,5,No
+GRV0004,2025-06-12,Nigahi OC,MCL,Working Hours,Worker-reported issue via mobile app,Closed - No Action,36,No
+GRV0005,2025-06-02,Dipka OC,WCL,Wages/Payment Delay,Worker-reported issue via mobile app,Closed - No Action,19,No
+GRV0006,2025-07-23,Singrauli OC,NCL,Working Hours,Worker-reported issue via mobile app,Resolved,42,No
+GRV0007,2025-04-26,Gevra OC,SCCL,Working Hours,Worker-reported issue via mobile app,Resolved,27,No
+GRV0008,2025-04-17,Kusmunda OC,MCL,Medical Facility,Worker-reported issue via mobile app,Resolved,21,No
+GRV0009,2025-03-07,Madhusudanpur Colliery,SCCL,Wages/Payment Delay,Worker-reported issue via mobile app,In Progress,,No
+GRV0010,2025-01-24,Kusmunda OC,BCCL,Medical Facility,Worker-reported issue via mobile app,Resolved,6,No
+GRV0011,2025-07-09,Amlohri OC,CCL,Harassment/Conduct,Worker-reported issue via mobile app,In Progress,,No
+GRV0012,2025-01-16,Talcher OC,MCL,Medical Facility,Worker-reported issue via mobile app,Closed - No Action,36,No
+GRV0013,2025-02-01,Gevra OC,WCL,Transport,Worker-reported issue via mobile app,Escalated,,Yes
+GRV0014,2025-08-23,Jharsuguda OC,SECL,Housing/Welfare,Worker-reported issue via mobile app,Resolved,19,No
+GRV0015,2025-01-27,Kusunda Colliery,CCL,Medical Facility,Worker-reported issue via mobile app,Closed - No Action,33,No
+GRV0016,2025-05-04,Gevra OC,MCL,Wages/Payment Delay,Worker-reported issue via mobile app,Resolved,7,No
+GRV0017,2025-07-15,Jharsuguda OC,NCL,Transport,Worker-reported issue via mobile app,In Progress,,No
+GRV0018,2025-04-20,Jharsuguda OC,ECL,Harassment/Conduct,Worker-reported issue via mobile app,Closed - No Action,40,No
+GRV0019,2025-08-26,Ningah Colliery,CCL,Housing/Welfare,Worker-reported issue via mobile app,In Progress,,No
+GRV0020,2025-06-29,Manikpur UG,MCL,Housing/Welfare,Worker-reported issue via mobile app,In Progress,,No
+GRV0021,2025-01-02,Jharsuguda OC,WCL,Wages/Payment Delay,Worker-reported issue via mobile app,Resolved,10,No
+GRV0022,2025-02-06,Nigahi OC,NCL,Working Hours,Worker-reported issue via mobile app,Resolved,6,No
+GRV0023,2025-04-18,Gevra OC,CCL,Housing/Welfare,Worker-reported issue via mobile app,Escalated,,Yes
+GRV0024,2025-03-21,Amlohri OC,BCCL,Wages/Payment Delay,Worker-reported issue via mobile app,In Progress,,No
+GRV0025,2025-02-09,Ningah Colliery,BCCL,Housing/Welfare,Worker-reported issue via mobile app,Resolved,40,No
+GRV0026,2025-04-24,Dipka OC,SCCL,Working Hours,Worker-reported issue via mobile app,Escalated,,Yes
+GRV0027,2025-03-11,Jhanjhara Project Colly,MCL,Working Hours,Worker-reported issue via mobile app,Resolved,33,No
+GRV0028,2025-01-29,Singrauli OC,SCCL,Harassment/Conduct,Worker-reported issue via mobile app,In Progress,,No
+GRV0029,2025-06-20,Ningah Colliery,NCL,Working Hours,Worker-reported issue via mobile app,In Progress,,No
+GRV0030,2025-06-03,Kusunda Colliery,SECL,Safety Equipment Shortage,Worker-reported issue via mobile app,Resolved,1,No
+GRV0031,2025-07-16,Moonidih Colliery,MCL,Wages/Payment Delay,Worker-reported issue via mobile app,Resolved,17,No
+GRV0032,2025-01-02,Nigahi OC,WCL,Safety Equipment Shortage,Worker-reported issue via mobile app,Escalated,,Yes
+GRV0033,2025-02-03,Talcher OC,NCL,Harassment/Conduct,Worker-reported issue via mobile app,Escalated,,Yes
+GRV0034,2025-05-24,Jhanjhara Project Colly,WCL,Transport,Worker-reported issue via mobile app,In Progress,,No
+GRV0035,2025-07-09,Ningah Colliery,SCCL,Wages/Payment Delay,Worker-reported issue via mobile app,Resolved,28,No
+GRV0036,2025-08-09,Jharsuguda OC,WCL,Harassment/Conduct,Worker-reported issue via mobile app,In Progress,,No
+GRV0037,2025-04-14,Moonidih Colliery,BCCL,Working Hours,Worker-reported issue via mobile app,Escalated,,Yes
+GRV0038,2025-01-06,Madhusudanpur Colliery,SCCL,Transport,Worker-reported issue via mobile app,In Progress,,No
+GRV0039,2025-06-26,Jhanjhara Project Colly,WCL,Transport,Worker-reported issue via mobile app,In Progress,,No
+GRV0040,2025-01-28,Jharsuguda OC,WCL,Harassment/Conduct,Worker-reported issue via mobile app,Resolved,28,No
+GRV0041,2025-01-21,Sohagpur UG,SECL,Medical Facility,Worker-reported issue via mobile app,Escalated,,Yes
+GRV0042,2025-03-28,Amlohri OC,CCL,Wages/Payment Delay,Worker-reported issue via mobile app,Resolved,22,No
+GRV0043,2025-05-11,Talcher OC,NCL,Transport,Worker-reported issue via mobile app,Resolved,34,No
+GRV0044,2025-03-31,Nigahi OC,CCL,Safety Equipment Shortage,Worker-reported issue via mobile app,In Progress,,No
+GRV0045,2025-01-27,Kusunda Colliery,CCL,Harassment/Conduct,Worker-reported issue via mobile app,Resolved,17,No
+GRV0046,2025-02-09,Amlohri OC,SCCL,Working Hours,Worker-reported issue via mobile app,Resolved,12,No
+GRV0047,2025-07-13,Dipka OC,MCL,Transport,Worker-reported issue via mobile app,Closed - No Action,38,No
+GRV0048,2025-06-10,Madhusudanpur Colliery,SCCL,Wages/Payment Delay,Worker-reported issue via mobile app,In Progress,,No
+GRV0049,2025-05-01,Singrauli OC,SECL,Transport,Worker-reported issue via mobile app,Escalated,,Yes
+GRV0050,2025-03-12,Gevra OC,BCCL,Housing/Welfare,Worker-reported issue via mobile app,Closed - No Action,4,No
+GRV0051,2025-04-29,Ningah Colliery,ECL,Housing/Welfare,Worker-reported issue via mobile app,Escalated,,Yes
+GRV0052,2025-08-01,Jhanjhara Project Colly,BCCL,Harassment/Conduct,Worker-reported issue via mobile app,In Progress,,No
+GRV0053,2025-06-02,Dipka OC,ECL,Working Hours,Worker-reported issue via mobile app,Closed - No Action,25,No
+GRV0054,2025-08-21,Kusunda Colliery,MCL,Harassment/Conduct,Worker-reported issue via mobile app,Closed - No Action,42,No
+GRV0055,2025-05-02,Ningah Colliery,SCCL,Wages/Payment Delay,Worker-reported issue via mobile app,Closed - No Action,10,No
+GRV0056,2025-07-27,Nigahi OC,BCCL,Harassment/Conduct,Worker-reported issue via mobile app,In Progress,,No
+GRV0057,2025-06-15,Kusunda Colliery,SCCL,Working Hours,Worker-reported issue via mobile app,Resolved,3,No
+GRV0058,2025-05-15,Madhusudanpur Colliery,MCL,Housing/Welfare,Worker-reported issue via mobile app,Closed - No Action,40,No
+GRV0059,2025-08-23,Kusmunda OC,WCL,Transport,Worker-reported issue via mobile app,In Progress,,No
+GRV0060,2025-03-28,Amlohri OC,MCL,Wages/Payment Delay,Worker-reported issue via mobile app,Closed - No Action,4,No
+GRV0061,2025-03-26,Singrauli OC,WCL,Housing/Welfare,Worker-reported issue via mobile app,Resolved,36,No
+GRV0062,2025-03-06,Gevra OC,BCCL,Harassment/Conduct,Worker-reported issue via mobile app,Closed - No Action,10,No
+GRV0063,2025-06-19,Moonidih Colliery,WCL,Safety Equipment Shortage,Worker-reported issue via mobile app,Resolved,23,No
+GRV0064,2025-06-02,Talcher OC,WCL,Medical Facility,Worker-reported issue via mobile app,Resolved,20,No
+GRV0065,2025-07-22,Sohagpur UG,CCL,Medical Facility,Worker-reported issue via mobile app,In Progress,,No
+GRV0066,2025-06-29,Singrauli OC,WCL,Harassment/Conduct,Worker-reported issue via mobile app,Closed - No Action,6,No
+GRV0067,2025-04-03,Moonidih Colliery,CCL,Safety Equipment Shortage,Worker-reported issue via mobile app,Resolved,24,No
+GRV0068,2025-03-29,Kusunda Colliery,NCL,Safety Equipment Shortage,Worker-reported issue via mobile app,Escalated,,Yes
+GRV0069,2025-02-09,Sohagpur UG,BCCL,Harassment/Conduct,Worker-reported issue via mobile app,Resolved,19,No
+GRV0070,2025-07-17,Ningah Colliery,MCL,Transport,Worker-reported issue via mobile app,Closed - No Action,34,No
+GRV0071,2025-06-08,Kusmunda OC,CCL,Safety Equipment Shortage,Worker-reported issue via mobile app,Resolved,39,No
+GRV0072,2025-02-16,Nigahi OC,SCCL,Wages/Payment Delay,Worker-reported issue via mobile app,Closed - No Action,11,No
+GRV0073,2025-04-16,Singrauli OC,NCL,Working Hours,Worker-reported issue via mobile app,In Progress,,No
+GRV0074,2025-06-06,Amlohri OC,SCCL,Safety Equipment Shortage,Worker-reported issue via mobile app,In Progress,,No
+GRV0075,2025-05-17,Amlohri OC,SCCL,Transport,Worker-reported issue via mobile app,Resolved,20,No

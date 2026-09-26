@@ -94,7 +94,7 @@ export default function OcrCapture({ onExtract }) {
 
     try {
       const Tesseract = await loadTesseract();
-      const { data } = await Tesseract.recognize(file, "eng", {
+      const { data } = await Tesseract.recognize(file, "eng+hin", {
         logger: (m) => {
           if (m.status === "recognizing text") setProgress(Math.round(m.progress * 100));
         },

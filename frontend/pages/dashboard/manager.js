@@ -5,7 +5,10 @@ import ChatPanel from "../../components/ChatPanel";
 import MineMap from "../../components/MineMap";
 import ReportPanel from "../../components/ReportPanel";
 import AlertsPanel from "../../components/AlertsPanel";
-import { Card, StatStrip, Table, Badge, Button, Notice } from "../../components/ui";
+import PredictionsPanel from "../../components/PredictionsPanel";
+import { PhotoInput, EvidenceLink } from "../../components/Evidence";
+import { uploadEvidence } from "../../lib/evidence";
+import { Card, StatStrip, Table, Badge, Button, Notice, Field } from "../../components/ui";
 import { useAuth } from "../../lib/useAuth";
 import { getComplianceStatus, updateComplianceStatus } from "../../lib/api";
 import { supabase } from "../../lib/supabase";
@@ -24,6 +27,9 @@ function ManagerContent() {
   const [flags, setFlags] = useState(null);
   const [flagDraft, setFlagDraft] = useState(null);   // flag being answered
   const [flagNote, setFlagNote] = useState("");
+  const [completing, setCompleting] = useState(null);   // obligation being marked Completed
+  const [proof, setProof] = useState(null);
+  const [proofNote, setProofNote] = useState("");
 
   const loadCompliance = async () => {
     if (!profile?.mine_id) return;
@@ -131,12 +137,20 @@ function ManagerContent() {
       .then(({ data }) => setContractors(data || []));
   }, [profile?.mine_id]);
 
-  const handleStatusChange = async (trackingId, newStatus) => {
+  // Marking an obligation Completed opens a short form for the proof (a
+  // challan, a test certificate, a photo). The other statuses change at
+  // once, as before.
+  const handleStatusChange = async (trackingId, newStatus, remarks = "", evidencePath = "", confirmed = false) => {
+    if (newStatus === "Completed" && !confirmed) {
+      setCompleting((compliance || []).find((c) => c.tracking_id === trackingId) || null);
+      setProof(null); setProofNote("");
+      return;
+    }
     setSavingId(trackingId);
     setError(null);
     try {
       const token = await getAccessToken();
-      const res = await updateComplianceStatus(token, trackingId, newStatus, "");
+      const res = await updateComplianceStatus(token, trackingId, newStatus, remarks, evidencePath);
       if (res?.error) setError(res.error);
       else await loadCompliance();
     } catch (e) {
@@ -144,6 +158,21 @@ function ManagerContent() {
     } finally {
       setSavingId(null);
     }
+  };
+
+  const confirmCompleted = async () => {
+    if (!completing) return;
+    setSavingId(completing.tracking_id);
+    let path = "";
+    try {
+      if (proof) path = await uploadEvidence(profile.mine_id, "compliance", proof);
+    } catch (e) {
+      setSavingId(null);
+      return setError(e.message);
+    }
+    const item = completing;
+    await handleStatusChange(item.tracking_id, "Completed", proofNote, path, true);
+    setCompleting(null); setProof(null); setProofNote("");
   };
 
   const overdue = (compliance || []).filter((c) => c.status === "Overdue").length;
@@ -235,7 +264,28 @@ function ManagerContent() {
         />
       </Card>
 
+      <PredictionsPanel />
+
       <Card title="Statutory compliance">
+        {completing && (
+          <div style={{ background: "var(--primary-wash)", borderLeft: "3px solid var(--primary)",
+                        padding: 14, marginBottom: 14, borderRadius: 3 }}>
+            <div style={{ fontSize: 14, marginBottom: 8 }}>
+              Marking complete: <strong>{completing.statutory_compliance_items?.requirement_summary}</strong>
+            </div>
+            <Field label="What was done (reference no., date, who)">
+              <input value={proofNote} onChange={(e) => setProofNote(e.target.value)}
+                placeholder="e.g. Form IV return filed, ack. no. 2291 on 12 Sep" />
+            </Field>
+            <PhotoInput value={proof} onChange={setProof} accept="image/*,application/pdf" capture={false}
+              label="Proof: photo or PDF (recommended)" />
+            <Button onClick={confirmCompleted} disabled={savingId === completing.tracking_id}>
+              {savingId === completing.tracking_id ? "Saving" : "Mark completed"}
+            </Button>
+            <Button variant="quiet" style={{ marginLeft: 12 }}
+              onClick={() => { setCompleting(null); setProof(null); }}>Cancel</Button>
+          </div>
+        )}
         <Table
           columns={[
             { key: "req", label: "Requirement",
@@ -244,6 +294,7 @@ function ManagerContent() {
               render: (r) => r.statutory_compliance_items?.category || "—" },
             { key: "due", label: "Due", width: 110, nowrap: true, render: (r) => r.due_date || "—" },
             { key: "status", label: "Status", width: 110, render: (r) => <Badge>{r.status}</Badge> },
+            { key: "evidence", label: "Proof", width: 70, render: (r) => <EvidenceLink path={r.evidence_url} /> },
             { key: "set", label: "Change to", width: 150,
               render: (r) => (
                 <select

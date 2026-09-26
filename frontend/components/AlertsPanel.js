@@ -51,6 +51,34 @@ export default function AlertsPanel({ limit = 60 }) {
 
   useEffect(() => { load(); }, [profile?.profile_id]);
 
+  // Live updates. The database raises some alerts itself the instant a
+  // record lands -- a serious incident reported at the face, a reading
+  // over its limit -- and those should not wait for a page refresh.
+  // Realtime respects RLS, so each user is only sent alerts they may read.
+  // High and Critical ones also raise a device notification if allowed.
+  const [notify, setNotify] = useState(
+    typeof Notification === "undefined" ? "unsupported" : Notification.permission);
+  useEffect(() => {
+    if (!profile?.profile_id) return;
+    const channel = supabase
+      .channel(`alerts-${profile.profile_id}`)
+      .on("postgres_changes", { event: "INSERT", schema: "public", table: "alerts" }, (payload) => {
+        const a = payload.new || {};
+        load();
+        if (["High", "Critical"].includes(a.severity) && typeof Notification !== "undefined"
+            && Notification.permission === "granted") {
+          try { new Notification(a.title || "New alert", { body: a.body || "", tag: a.alert_id, icon: "/icon-192.png" }); }
+          catch { /* some mobile browsers only allow notifications from the service worker */ }
+        }
+      })
+      .subscribe();
+    return () => { supabase.removeChannel(channel); };
+  }, [profile?.profile_id]);
+
+  const askNotify = async () => {
+    try { setNotify(await Notification.requestPermission()); } catch { /* ignored */ }
+  };
+
   // Acknowledging stops the escalation clock. It is not the same as
   // fixing the problem -- the alert closes on its own once the underlying
   // record is no longer overdue -- so the wording says "I've seen this",
@@ -77,11 +105,16 @@ export default function AlertsPanel({ limit = 60 }) {
     <Card
       title="Needs your attention"
       action={
-        alerts?.length ? (
-          <span style={{ fontSize: 13, color: critical ? "var(--sev-critical)" : "var(--ink-soft)" }}>
-            {open.length} open{critical ? `, ${critical} critical` : ""}
-          </span>
-        ) : null
+        <span style={{ display: "flex", gap: 14, alignItems: "baseline" }}>
+          {notify === "default" && (
+            <button className="linkish" onClick={askNotify}>Notify me on this device</button>
+          )}
+          {alerts?.length ? (
+            <span style={{ fontSize: 13, color: critical ? "var(--sev-critical)" : "var(--ink-soft)" }}>
+              {open.length} open{critical ? `, ${critical} critical` : ""}
+            </span>
+          ) : null}
+        </span>
       }
     >
       {error && <Notice tone="error">{error}</Notice>}

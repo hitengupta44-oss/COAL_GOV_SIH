@@ -34,12 +34,16 @@ function tx(db, mode) {
   return db.transaction(STORE, mode).objectStore(STORE);
 }
 
-export async function enqueue(kind, payload) {
+// `owner` is the profile that recorded the item. On a shared phone a
+// record must be sent under the identity of the person who made it, never
+// whoever happens to be signed in when the signal returns.
+export async function enqueue(kind, payload, owner = null) {
   const db = await openDb();
   return new Promise((resolve, reject) => {
     const req = tx(db, "readwrite").add({
       kind,
       payload,
+      owner,
       queuedAt: new Date().toISOString(),
       attempts: 0,
       lastError: null,
@@ -90,8 +94,8 @@ async function markFailed(item, message) {
  * forever in the background, so a genuine problem (a revoked role, a mine
  * reassignment) surfaces to a person instead of silently looping.
  */
-export async function syncQueue(handlers) {
-  const items = await listQueue();
+export async function syncQueue(handlers, { owner = null } = {}) {
+  const items = (await listQueue()).filter((i) => !i.owner || !owner || i.owner === owner);
   let sent = 0, failed = 0;
 
   for (const item of items) {

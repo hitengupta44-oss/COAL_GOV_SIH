@@ -13,6 +13,8 @@ export const SEVERITY = {
   "Not Applicable": null, Resolved: "low", "In Progress": "medium",
   Escalated: "high", Open: "medium", Closed: "low", Active: "low",
   Expired: "high", "Under Review": "medium",
+  "Action Taken": "medium", Reopened: "high", Reported: "high", "Under Investigation": "medium",
+  Draft: null, Submitted: "medium", Returned: "high", Approved: "low",
 };
 
 const sevColor = (k) => (k ? `var(--sev-${k})` : "var(--line-strong)");
@@ -207,7 +209,7 @@ export function Empty({ children }) {
   );
 }
 
-export function Button({ children, variant = "primary", ...rest }) {
+export function Button({ children, variant = "primary", style, ...rest }) {
   const base = {
     padding: "8px 14px",
     borderRadius: "var(--radius)",
@@ -220,7 +222,9 @@ export function Button({ children, variant = "primary", ...rest }) {
     secondary: { ...base, background: "var(--surface)", color: "var(--ink)", border: "1px solid var(--line-strong)" },
     quiet: { ...base, background: "none", color: "var(--primary)", border: "none", padding: "4px 0" },
   };
-  return <button style={styles[variant]} {...rest}>{children}</button>;
+  // A caller's style is merged over the variant rather than replacing it --
+  // passing {marginLeft: 8} used to wipe out the button's colours.
+  return <button style={{ ...styles[variant], ...style }} {...rest}>{children}</button>;
 }
 
 export function Field({ label, children }) {

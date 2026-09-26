@@ -1,0 +1,41 @@
+contractor_id,contractor_name,mine_assigned,subsidiary,contract_type,contract_start,contract_end,contract_value_inr_lakh,status,blacklisted
+CTR001,Sri Mining Services,Kusunda Colliery,NCL,Coal Transportation,2023-10-17,2025-02-07,1854.35,Expired,No
+CTR002,Sri Enterprises,Jhanjhara Project Colly,NCL,Coal Transportation,2023-08-28,2025-11-02,1288.12,Active,Yes
+CTR003,National Logistics,Kusmunda OC,NCL,Mine Development,2022-07-23,2025-05-18,1493.7,Active,No
+CTR004,Jai Mining Services,Madhusudanpur Colliery,NCL,Drilling & Blasting,2023-12-16,2026-02-20,300.42,Under Review,No
+CTR005,Bharat Mining Services,Amlohri OC,ECL,Security Services,2023-01-03,2024-12-20,1175.59,Active,No
+CTR006,Jai Logistics,Manikpur UG,MCL,Housekeeping,2022-03-22,2024-10-07,521.11,Active,No
+CTR007,United Mining Services,Jhanjhara Project Colly,NCL,Overburden Removal,2023-11-09,2025-06-29,981.31,Under Review,No
+CTR008,Jai Infra,Singrauli OC,SECL,Security Services,2022-06-16,2024-06-29,2344.8,Active,Yes
+CTR009,Bharat Infra,Madhusudanpur Colliery,SCCL,Mine Development,2023-10-13,2025-04-05,711.37,Expired,No
+CTR010,United Enterprises,Kusunda Colliery,ECL,Drilling & Blasting,2023-12-03,2025-10-30,1032.85,Active,No
+CTR011,Om Constructions,Kusmunda OC,SCCL,Coal Transportation,2023-08-04,2025-06-21,698.96,Active,Yes
+CTR012,National Logistics,Kusmunda OC,WCL,Drilling & Blasting,2023-07-06,2025-03-31,587.34,Active,Yes
+CTR013,United Enterprises,Sohagpur UG,BCCL,Coal Transportation,2023-05-21,2024-08-21,1587.24,Under Review,Yes
+CTR014,Shakti Logistics,Dipka OC,SECL,Housekeeping,2022-03-07,2024-04-04,2158.91,Active,No
+CTR015,United Mining Services,Amlohri OC,MCL,Overburden Removal,2023-11-30,2026-06-01,769.08,Active,No
+CTR016,Bharat Infra,Talcher OC,BCCL,Security Services,2022-01-04,2023-09-30,781.19,Expired,Yes
+CTR017,Jai Infra,Talcher OC,ECL,Housekeeping,2022-07-23,2023-12-26,844.18,Active,No
+CTR018,Om Enterprises,Kusunda Colliery,BCCL,Overburden Removal,2023-01-07,2024-11-16,1843.17,Active,Yes
+CTR019,Om Constructions,Talcher OC,CCL,Drilling & Blasting,2024-02-24,2025-07-01,1342.8,Expired,No
+CTR020,United Infra,Nigahi OC,SECL,Mine Development,2022-08-05,2025-02-07,2488.12,Active,No
+CTR021,Sri Infra,Kusunda Colliery,BCCL,Drilling & Blasting,2023-06-14,2025-09-18,101.53,Expired,No
+CTR022,Sri Enterprises,Nigahi OC,ECL,Coal Transportation,2023-08-26,2025-04-07,215.13,Active,No
+CTR023,Om Mining Services,Singrauli OC,SCCL,Coal Transportation,2022-03-14,2024-08-21,1371.12,Expired,Yes
+CTR024,United Constructions,Amlohri OC,WCL,Coal Transportation,2023-04-30,2025-01-02,281.1,Under Review,No
+CTR025,Shakti Enterprises,Singrauli OC,BCCL,Overburden Removal,2023-03-10,2025-05-03,1036.42,Active,No
+CTR026,Om Logistics,Dipka OC,CCL,Mine Development,2022-09-12,2024-03-26,499.55,Under Review,No
+CTR027,Shakti Logistics,Jhanjhara Project Colly,ECL,Security Services,2024-06-14,2025-08-30,2498.24,Active,No
+CTR028,Om Constructions,Dipka OC,SCCL,Coal Transportation,2024-02-11,2025-10-10,2168.39,Active,No
+CTR029,Shakti Mining Services,Manikpur UG,SCCL,Drilling & Blasting,2023-01-24,2024-01-26,1086.37,Expired,No
+CTR030,Jai Infra,Ningah Colliery,ECL,Security Services,2022-06-08,2023-12-19,818.33,Active,Yes
+CTR031,United Logistics,Madhusudanpur Colliery,ECL,Housekeeping,2023-05-04,2025-09-29,246.27,Active,No
+CTR032,National Infra,Kusmunda OC,BCCL,Housekeeping,2023-09-02,2024-11-09,653.23,Expired,No
+CTR033,Shakti Logistics,Jharsuguda OC,MCL,Drilling & Blasting,2023-09-27,2024-12-18,550.44,Active,No
+CTR034,Om Mining Services,Dipka OC,MCL,Overburden Removal,2022-09-29,2024-11-07,72.82,Expired,Yes
+CTR035,Bharat Infra,Talcher OC,SECL,Coal Transportation,2022-04-13,2023-06-27,2336.49,Active,No
+CTR036,Om Constructions,Sohagpur UG,SECL,Housekeeping,2023-01-14,2024-10-31,2460.44,Expired,No
+CTR037,Jai Enterprises,Manikpur UG,CCL,Drilling & Blasting,2023-11-15,2026-06-04,332.8,Active,Yes
+CTR038,Jai Logistics,Kusunda Colliery,MCL,Coal Transportation,2022-06-09,2024-03-13,1734.37,Active,Yes
+CTR039,United Enterprises,Jhanjhara Project Colly,WCL,Drilling & Blasting,2023-05-16,2025-01-27,158.01,Active,No
+CTR040,Om Constructions,Talcher OC,WCL,Housekeeping,2023-10-15,2025-07-09,73.69,Active,No

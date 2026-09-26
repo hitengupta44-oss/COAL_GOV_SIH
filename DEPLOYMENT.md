@@ -2,14 +2,22 @@
 
 Deploy in this order. Each step depends on the one before it.
 
-**Stack:** Supabase (database + auth) → Groq (AI chat) → Hugging Face Space (backend, Gradio SDK) → Vercel (frontend, Next.js).
+**Stack:** Supabase (database + auth + storage) → Groq (AI chat) → Hugging Face Space (backend, Gradio SDK) → Vercel (frontend, Next.js) → GitHub Actions (scheduled jobs).
+
+> **Already deployed an earlier version?** Skip to [Upgrading an existing deployment](#upgrading-an-existing-deployment).
 
 ---
 
 ## 1. Supabase — database and auth
 
 1. Create a project at [supabase.com](https://supabase.com). Save the database password somewhere.
-2. Open **SQL Editor** and run the whole of `supabase/schema.sql`. This creates every table plus the Row Level Security policies.
+2. Open **SQL Editor** and run, one file at a time and **in this order**:
+   `schema.sql`, `migration_02_workflow.sql`, `migration_03_alerts.sql`,
+   `migration_04_view_security.sql`, `migration_05_flag_response.sql`,
+   `migration_06_rls_hardening.sql`, `migration_07_field_operations.sql`,
+   `migration_08_returns_and_audit_chain.sql`, `migration_09_predictions.sql`.
+   Every migration is safe to re-run. Migration 07 also creates the private
+   `evidence` storage bucket and adds the `alerts` table to Realtime.
 3. Go to **Settings → API** and copy three values you'll need later:
    - Project URL
    - `anon` public key
@@ -25,9 +33,16 @@ pip install -r requirements.txt
 export SUPABASE_URL="https://your-ref.supabase.co"
 export SUPABASE_SERVICE_ROLE_KEY="your-service-role-key"
 
-python load_seed_data.py          # mines, production, accidents
-python seed_compliance_tracking.py # compliance checklist rows
-python seed_demo_users.py          # demo logins for the judges
+python load_seed_data.py            # mines, production, accidents
+python seed_compliance_tracking.py  # compliance checklist rows
+python seed_demo_users.py           # demo logins for the judges
+python seed_workflow_data.py        # contractor documents, grievance deadlines
+python seed_field_operations.py     # production, environment, attendance,
+                                    # incidents, corrective actions, returns
+python risk_scoring_job.py          # risk flags
+python predictive_job.py            # predictions + early warnings
+python alerts_engine.py             # alerts and escalation
+python publish_audit_anchor.py      # confirms the audit chain is intact
 ```
 
 `seed_demo_users.py` prints a table of demo accounts at the end. All share the password `CoalDemo#2026`:
@@ -35,19 +50,22 @@ python seed_demo_users.py          # demo logins for the judges
 | Email | Role | Shows off |
 |---|---|---|
 | admin@coaldemo.in | admin | User management, role approval |
-| corporate@coaldemo.in | corporate_admin | Cross-subsidiary KPIs |
-| regulator@coaldemo.in | regulator | Read-only national oversight |
-| manager@coaldemo.in | mine_official | Updating compliance items |
-| inspector@coaldemo.in | inspector | Geo-tagged field inspections |
-| contractor@coaldemo.in | contractor_manager | Contractor workforce view |
-| worker@coaldemo.in | worker | Limited single-mine view |
+| corporate@coaldemo.in | corporate_admin | Subsidiary KPIs, approving returns, verifying fixes |
+| regulator@coaldemo.in | regulator | Read-only national oversight, approved returns, audit verification |
+| manager@coaldemo.in | mine_official | Compliance with proof, fixes, incidents, production, returns |
+| inspector@coaldemo.in | inspector | Geo-tagged inspections with photos, verifying fixes |
+| contractor@coaldemo.in | contractor_manager | Contractor register and documents |
+| worker@coaldemo.in | worker | Grievances, check-in, incident reporting, Hindi |
+
+> A fix cannot be verified by the person who recorded it. To demo verification
+> end to end, record the fix as `manager@` and verify as `inspector@`.
 
 ---
 
 ## 2. Groq — AI chat
 
 1. Get an API key at [console.groq.com](https://console.groq.com).
-2. Hold onto it for step 3. Nothing else to configure — the model (`llama-3.3-70b-versatile`) is set by an env var with a sensible default.
+2. Hold onto it for steps 3 and 5. Nothing else to configure — the model defaults to `openai/gpt-oss-120b` and can be changed with a `GROQ_MODEL` secret. (`llama-3.3-70b-versatile`, the earlier default, was decommissioned by Groq on 2026-08-16.)
 
 ---
 
@@ -95,12 +113,70 @@ python seed_demo_users.py          # demo logins for the judges
 
 ---
 
+## 5. GitHub Actions — scheduled jobs
+
+Alerts, reminders, escalation and the analytics only happen if something runs
+them. `.github/workflows/governance-jobs.yml` does, with nothing to host:
+
+| Schedule | Jobs |
+|---|---|
+| Hourly | `alerts_engine.py` (marks overdue actions, raises and escalates alerts, emails), `publish_audit_anchor.py` |
+| Daily, 06:00 IST | `risk_scoring_job.py`, `predictive_job.py`, then the hourly jobs |
+
+1. Repo **Settings → Secrets and variables → Actions**, add:
+
+   | Secret | Required |
+   |---|---|
+   | `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY` | yes |
+   | `GROQ_API_KEY` | optional — plain-English risk-flag explanations |
+   | `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASSWORD`, `ALERT_EMAIL_FROM` | optional — email alerts (e.g. a Gmail app password on `smtp.gmail.com:587`) |
+
+2. **Actions → Governance jobs → Run workflow** once to check. Each run's summary
+   shows the audit chain's latest hash; a broken chain fails the run and GitHub
+   emails the repository owners.
+
+`.github/workflows/db-tests.yml` needs no secrets: it rebuilds the database from
+the migrations in a throwaway Postgres and runs the policy tests on every push
+that touches `supabase/`.
+
+---
+
+## Upgrading an existing deployment
+
+For a project already running `schema.sql` + migrations 02–05:
+
+1. **Supabase SQL Editor:** run migrations `06`, `07`, `08`, `09` in order.
+   Existing audit entries are chained automatically by migration 08.
+2. **Seed the new modules** (optional but recommended for demos):
+   `python seed_field_operations.py`, then `risk_scoring_job.py`,
+   `predictive_job.py`, `alerts_engine.py`.
+3. **Backend:** push the new `backend/app.py` to the Space. No new secrets.
+4. **Frontend:** redeploy on Vercel. No new variables.
+5. **Scheduler:** add the Actions secrets from step 5.
+6. Check with the SQL below — every row should say `true`:
+
+   ```sql
+   select relname, relrowsecurity from pg_class
+    where relnamespace = 'public'::regnamespace and relkind = 'r'
+      and relname <> 'spatial_ref_sys'
+    order by relrowsecurity, relname;
+   ```
+
+> **Why migration 06 matters:** before it, 14 tables — including `grievances`,
+> `contractors` and `audit_log` — had RLS switched off, which in Supabase means
+> anyone holding the public anon key (it ships in the browser bundle) could read
+> and rewrite them. If your live project was set up from the earlier files, it is
+> in that state until 06 runs.
+
+---
+
 ## Verifying it end to end
 
 1. Log in as `corporate@coaldemo.in` → dashboard KPIs load (frontend → backend → Supabase).
 2. Open the chat page, ask "which mines have overdue compliance?" → a real answer (Groq is connected).
-3. Log in as `inspector@coaldemo.in`, file an inspection → allow location access when the browser prompts.
-4. Log in as `worker@coaldemo.in` and manually visit `/dashboard/corporate` → you get redirected. Role enforcement works.
+3. Log in as `inspector@coaldemo.in`, file an inspection with a photo → allow location and camera access when prompted. The confirmation says whether the position was inside the mine's geo-fence.
+4. Log in as `manager@coaldemo.in` → **Corrective actions** → record a fix; then as `inspector@` verify it. As `regulator@` → **Audit trail** → **Verify the audit chain** → "Intact".
+5. Log in as `worker@coaldemo.in` and manually visit `/dashboard/corporate` → you get redirected. Role enforcement works.
 
 ---
 
@@ -123,3 +199,25 @@ The seed scripts probably weren't run, or were run against a different project. 
 
 **Postgres error mentioning "infinite recursion detected in policy"**
 Something is querying `user_profiles` inside a policy on `user_profiles` itself. The `auth_role()` / `auth_mine_id()` helpers in `schema.sql` are declared `security definer` precisely to avoid this — make sure the whole RLS section ran.
+
+**"permission denied" or empty tables right after migration 06**
+Expected for anything a role should not see. If a role that *should* see data gets
+nothing, confirm its `user_profiles` row has the right `role` and `mine_id` — every
+policy keys off those two fields.
+
+**Photo upload fails with "new row violates row-level security policy"**
+Files must go under the uploader's own mine folder (`<mine_id>/...`). This happens
+when a user has no `mine_id`; assign one in the admin screen.
+
+**Alerts don't appear live**
+Migration 07 adds `alerts` to the `supabase_realtime` publication. Check under
+**Database → Publications**. Without it alerts still appear on page load.
+
+**A column is missing from a view after a migration**
+Postgres fixes a view's columns when the view is created (`select *` is expanded
+then). Migration 07 rebuilds `contractor_compliance_view` for this reason; any new
+column on a table behind a `select *` view needs the view recreated.
+
+**`predictive_job.py` says "Not enough outcome history"**
+It needs at least 50 obligations with a known outcome (Completed or Overdue). Run
+`seed_compliance_tracking.py` first.
