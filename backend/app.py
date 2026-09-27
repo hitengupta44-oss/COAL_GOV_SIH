@@ -131,6 +131,50 @@ except ImportError:
 # ------------------------------------------------------------
 # Clients
 # ------------------------------------------------------------
+# Stale-connection retry. The Supabase client keeps an HTTP/2 connection
+# open between requests; Supabase closes it after a period of idleness, and
+# the next request on the dead connection fails with
+# "httpx.RemoteProtocolError: Server disconnected" before it reaches the
+# server. On a Space that sits idle between visits this made the first
+# dashboard calls fail with a 500. Such a request never arrived, so sending
+# it again on a fresh connection (httpx drops the dead one) is safe. Only
+# these connection-level errors are retried, and only once.
+#
+# The Space logs showed the disconnects on almost every request, not just
+# after idle periods: the Supabase clients (postgrest, gotrue, storage)
+# share one HTTP/2 connection across Gradio's worker threads, and that
+# connection keeps getting torn down while several dashboard calls run at
+# once. So the clients are switched to plain HTTP/1.1, which uses a pool
+# of separate connections and detects closed ones before reusing them.
+# The retry stays as a safety net (up to two retries, 0.3 s apart).
+import httpx
+
+_httpx_client_init = httpx.Client.__init__
+
+
+def _client_init_http1(self, *args, **kwargs):
+    kwargs["http2"] = False
+    _httpx_client_init(self, *args, **kwargs)
+
+
+httpx.Client.__init__ = _client_init_http1
+
+_httpx_send = httpx.Client.send
+
+
+def _send_retrying_stale_connection(self, request, *args, **kwargs):
+    for attempt in range(3):
+        try:
+            return _httpx_send(self, request, *args, **kwargs)
+        except (httpx.RemoteProtocolError, httpx.ConnectError) as e:
+            if attempt == 2:
+                raise
+            print(f"[retry] {request.method} {request.url.path}: {e} -- retrying on a fresh connection")
+            time.sleep(0.3)
+
+
+httpx.Client.send = _send_retrying_stale_connection
+
 SUPABASE_URL = os.environ.get("SUPABASE_URL")
 SUPABASE_KEY = os.environ.get("SUPABASE_SERVICE_ROLE_KEY")
 GROQ_API_KEY = os.environ.get("GROQ_API_KEY")
