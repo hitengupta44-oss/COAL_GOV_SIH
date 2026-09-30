@@ -438,28 +438,7 @@ at the mine. Daily production figures are synthetic around each mine's real outp
 
 ---
 
-## 🚧 Not built
-
-Stated here rather than discovered later.
-
-- **Play Store / App Store listing** — the Android app installs from its APK and
-  iPhones use Add to Home Screen; store listings need paid developer accounts
-- **Lease boundaries for every mine** — the geo-fence follows a mine's lease polygon
-  where one is loaded (KML, or the extent stated in its EC report; one mine so far).
-  Elsewhere it is a radius around the mine's point (5 km exact, 25 km approximate)
-- **Real compliance history for the model** — the predictive pipeline is real, but
-  the seed compliance statuses are synthetic, so its accuracy on seed data (AUC ≈ 0.70)
-  says little about real performance. It prints and stores its cross-validated AUC
-  so this is never hidden
-- **SMS** — alerts reach people in-app, as device notifications and by email, all
-  free; SMS needs a paid gateway (e.g. MSG91, Twilio)
-- **Official DGMS form layouts** — returns carry the statutory figures and an
-  approval record, not a reproduction of each prescribed form
-- **Instant blockchain confirmation** — Bitcoin anchors confirm a few hours after
-  they are made, once a day; changes made since the last anchor are protected by the
-  hash chain and the GitHub record until the next one
-
----
+## 
 
 <div align="center">
 <sub>Built for Smart India Hackathon 2026 · Problem Statement SIH26024</sub>
